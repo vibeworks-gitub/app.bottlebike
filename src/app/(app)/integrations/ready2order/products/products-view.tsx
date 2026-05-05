@@ -16,6 +16,7 @@ import { formatEUR } from "@/lib/format";
 
 export type ProductRow = {
   product_id: number;
+  productgroup_id: number | null;
   product_name: string | null;
   product_itemnumber: string | null;
   product_barcode: string | null;
@@ -24,19 +25,39 @@ export type ProductRow = {
   product_vat: number | null;
   product_active: boolean | null;
   product_sold_out: boolean | null;
+  product_fav: boolean | null;
+  product_highlight: boolean | null;
+  product_discountable: boolean | null;
   product_stock_enabled: boolean | null;
   product_stock_value: number | null;
   product_stock_reorder_level: number | null;
 };
 
+export type GroupOption = { id: number; name: string };
+
 type Status = "all" | "active" | "inactive" | "soldout";
 type StockFilter = "all" | "enabled" | "below_reorder" | "out";
+type Flag = "all" | "yes" | "no";
 
-export function ProductsView({ products }: { products: ProductRow[] }) {
+export function ProductsView({
+  products,
+  groups,
+}: {
+  products: ProductRow[];
+  groups: GroupOption[];
+}) {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<Status>("all");
   const [vat, setVat] = useState<string>("all");
   const [stock, setStock] = useState<StockFilter>("all");
+  const [group, setGroup] = useState<string>("all");
+  const [fav, setFav] = useState<Flag>("all");
+
+  const groupName = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const g of groups) m.set(g.id, g.name);
+    return m;
+  }, [groups]);
 
   const vatOptions = useMemo(() => {
     const set = new Set<number>();
@@ -63,6 +84,9 @@ export function ProductsView({ products }: { products: ProductRow[] }) {
       if (status === "inactive" && p.product_active) return false;
       if (status === "soldout" && !p.product_sold_out) return false;
       if (vat !== "all" && String(p.product_vat) !== vat) return false;
+      if (group !== "all" && String(p.productgroup_id ?? "") !== group) return false;
+      if (fav === "yes" && !p.product_fav) return false;
+      if (fav === "no" && p.product_fav) return false;
       if (stock === "enabled" && !p.product_stock_enabled) return false;
       if (
         stock === "below_reorder" &&
@@ -81,65 +105,91 @@ export function ProductsView({ products }: { products: ProductRow[] }) {
       }
       return true;
     });
-  }, [products, q, status, vat, stock]);
+  }, [products, q, status, vat, stock, group, fav]);
 
   const reset = () => {
     setQ("");
     setStatus("all");
     setVat("all");
     setStock("all");
+    setGroup("all");
+    setFav("all");
   };
 
   const isFiltered =
-    q !== "" || status !== "all" || vat !== "all" || stock !== "all";
+    q !== "" ||
+    status !== "all" ||
+    vat !== "all" ||
+    stock !== "all" ||
+    group !== "all" ||
+    fav !== "all";
 
   return (
     <div className="flex flex-col gap-4">
-      <div className="grid grid-cols-1 gap-3 rounded-xl border border-border bg-card p-4 sm:grid-cols-2 lg:grid-cols-[2fr_1fr_1fr_1fr_auto]">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="q">Suche</Label>
-          <Input
-            id="q"
-            placeholder="Name, ID, SKU, Barcode…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
+      <div className="rounded-xl border border-border bg-card p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <div className="flex flex-col gap-1.5 xl:col-span-2">
+            <Label htmlFor="q">Suche</Label>
+            <Input
+              id="q"
+              placeholder="Name, ID, SKU, Barcode…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+          </div>
+          <FilterSelect
+            label="Status"
+            value={status}
+            onChange={(v) => setStatus(v as Status)}
+            options={[
+              { value: "all", label: "Alle" },
+              { value: "active", label: "Aktiv" },
+              { value: "inactive", label: "Inaktiv" },
+              { value: "soldout", label: "Ausverkauft" },
+            ]}
+          />
+          <FilterSelect
+            label="Warengruppe"
+            value={group}
+            onChange={setGroup}
+            options={[
+              { value: "all", label: "Alle" },
+              ...groups.map((g) => ({ value: String(g.id), label: g.name })),
+            ]}
+          />
+          <FilterSelect
+            label="MwSt"
+            value={vat}
+            onChange={setVat}
+            options={[
+              { value: "all", label: "Alle" },
+              ...vatOptions.map((v) => ({ value: String(v), label: `${v}%` })),
+            ]}
+          />
+          <FilterSelect
+            label="Lager"
+            value={stock}
+            onChange={(v) => setStock(v as StockFilter)}
+            options={[
+              { value: "all", label: "Alle" },
+              { value: "enabled", label: "Mit Lager" },
+              { value: "below_reorder", label: "Unter Nachbestell-Level" },
+              { value: "out", label: "Bestand 0" },
+            ]}
           />
         </div>
-        <FilterSelect
-          label="Status"
-          value={status}
-          onChange={(v) => setStatus(v as Status)}
-          options={[
-            { value: "all", label: "Alle" },
-            { value: "active", label: "Aktiv" },
-            { value: "inactive", label: "Inaktiv" },
-            { value: "soldout", label: "Ausverkauft" },
-          ]}
-        />
-        <FilterSelect
-          label="MwSt"
-          value={vat}
-          onChange={setVat}
-          options={[
-            { value: "all", label: "Alle" },
-            ...vatOptions.map((v) => ({
-              value: String(v),
-              label: `${v}%`,
-            })),
-          ]}
-        />
-        <FilterSelect
-          label="Lager"
-          value={stock}
-          onChange={(v) => setStock(v as StockFilter)}
-          options={[
-            { value: "all", label: "Alle" },
-            { value: "enabled", label: "Mit Lager" },
-            { value: "below_reorder", label: "Unter Nachbestell-Level" },
-            { value: "out", label: "Bestand 0" },
-          ]}
-        />
-        <div className="flex items-end">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+          <FilterSelect
+            label="Favorit"
+            value={fav}
+            onChange={(v) => setFav(v as Flag)}
+            inline
+            options={[
+              { value: "all", label: "Alle" },
+              { value: "yes", label: "Nur Favoriten" },
+              { value: "no", label: "Nur Nicht-Favoriten" },
+            ]}
+          />
           <button
             type="button"
             onClick={reset}
@@ -169,6 +219,9 @@ export function ProductsView({ products }: { products: ProductRow[] }) {
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Name
+                </TableHead>
+                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                  Warengruppe
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   SKU / Barcode
@@ -203,7 +256,23 @@ export function ProductsView({ products }: { products: ProductRow[] }) {
                       {p.product_id}
                     </TableCell>
                     <TableCell className="font-medium">
-                      {p.product_name ?? "—"}
+                      <span className="flex items-center gap-2">
+                        {p.product_fav && (
+                          <span
+                            title="Favorit"
+                            style={{ color: "var(--brand)" }}
+                          >
+                            ★
+                          </span>
+                        )}
+                        {p.product_name ?? "—"}
+                      </span>
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {p.productgroup_id != null
+                        ? (groupName.get(p.productgroup_id) ??
+                          `#${p.productgroup_id}`)
+                        : "—"}
                     </TableCell>
                     <TableCell className="font-mono text-xs text-muted-foreground">
                       {[p.product_itemnumber, p.product_barcode]
@@ -249,6 +318,12 @@ export function ProductsView({ products }: { products: ProductRow[] }) {
                         {p.product_sold_out && (
                           <Badge variant="outline">ausverkauft</Badge>
                         )}
+                        {p.product_highlight && (
+                          <Badge variant="outline">highlight</Badge>
+                        )}
+                        {p.product_discountable === false && (
+                          <Badge variant="outline">nicht rabattierbar</Badge>
+                        )}
                         {belowReorder && (
                           <Badge
                             className="bg-amber-100 text-amber-800"
@@ -275,12 +350,32 @@ function FilterSelect({
   value,
   onChange,
   options,
+  inline,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   options: Array<{ value: string; label: string }>;
+  inline?: boolean;
 }) {
+  if (inline) {
+    return (
+      <div className="flex items-center gap-2">
+        <Label className="text-xs">{label}</Label>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-sm"
+        >
+          {options.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-1.5">
       <Label>{label}</Label>

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { r2oFetchAll } from "@/lib/r2o";
+import { r2oFetch, r2oFetchAll } from "@/lib/r2o";
 import type { Integration } from "@/lib/types/database";
 
 async function getOwnerAndToken(): Promise<{ ownerId: string; token: string }> {
@@ -30,6 +30,7 @@ function toTimestamp(s: string | null | undefined): string | null {
 
 type R2oProduct = {
   product_id: number;
+  productgroup_id?: number | null;
   product_name?: string | null;
   product_description?: string | null;
   product_externalReference?: string | null;
@@ -39,8 +40,17 @@ type R2oProduct = {
   product_priceIncludesVat?: boolean | null;
   product_vat?: number | null;
   product_vat_id?: number | null;
+  product_customPrice?: boolean | null;
+  product_customQuantity?: boolean | null;
+  product_fav?: boolean | null;
+  product_highlight?: boolean | null;
+  product_expressMode?: boolean | null;
+  product_ingredients_enabled?: boolean | null;
+  product_variations_enabled?: boolean | null;
   product_active?: boolean | null;
   product_soldOut?: boolean | null;
+  product_sideDishOrder?: boolean | null;
+  product_discountable?: boolean | null;
   product_stock_enabled?: boolean | null;
   product_stock_value?: number | null;
   product_stock_unit?: string | null;
@@ -48,9 +58,32 @@ type R2oProduct = {
   product_stock_safetyStock?: number | null;
   product_sortIndex?: number | null;
   product_accountingCode?: string | null;
+  product_colorClass?: string | null;
+  product_type_id?: number | null;
+  product_alternativeNameOnReceipts?: string | null;
+  product_alternativeNameInPos?: string | null;
+  images?: unknown[] | null;
+  product_type?: unknown;
   product_created_at?: string | null;
   product_updated_at?: string | null;
 };
+
+async function mapWithLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      results[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 type R2oProductGroup = {
   productgroup_id: number;
@@ -86,9 +119,21 @@ export async function syncProducts(): Promise<SyncResult> {
       return { ok: true, count: 0, durationMs: Date.now() - t0 };
     }
 
-    const rows = items.map((p) => ({
+    // The list endpoint omits productgroup_id — fetch detail per product
+    // with bounded concurrency to fill it in.
+    const detailed = await mapWithLimit(items, 8, async (p) => {
+      try {
+        const d = await r2oFetch<R2oProduct>(token, `/v1/products/${p.product_id}`);
+        return { ...p, ...d } as R2oProduct;
+      } catch {
+        return p;
+      }
+    });
+
+    const rows = detailed.map((p) => ({
       owner_id: ownerId,
       product_id: p.product_id,
+      productgroup_id: p.productgroup_id ?? null,
       product_name: p.product_name ?? null,
       product_description: p.product_description ?? null,
       product_external_reference: p.product_externalReference ?? null,
@@ -98,8 +143,17 @@ export async function syncProducts(): Promise<SyncResult> {
       product_price_includes_vat: p.product_priceIncludesVat ?? null,
       product_vat: p.product_vat ?? null,
       product_vat_id: p.product_vat_id ?? null,
+      product_custom_price: p.product_customPrice ?? null,
+      product_custom_quantity: p.product_customQuantity ?? null,
+      product_fav: p.product_fav ?? null,
+      product_highlight: p.product_highlight ?? null,
+      product_express_mode: p.product_expressMode ?? null,
+      product_ingredients_enabled: p.product_ingredients_enabled ?? null,
+      product_variations_enabled: p.product_variations_enabled ?? null,
       product_active: p.product_active ?? null,
       product_sold_out: p.product_soldOut ?? null,
+      product_side_dish_order: p.product_sideDishOrder ?? null,
+      product_discountable: p.product_discountable ?? null,
       product_stock_enabled: p.product_stock_enabled ?? null,
       product_stock_value: p.product_stock_value ?? null,
       product_stock_unit: p.product_stock_unit ?? null,
@@ -107,6 +161,12 @@ export async function syncProducts(): Promise<SyncResult> {
       product_stock_safety_stock: p.product_stock_safetyStock ?? null,
       product_sort_index: p.product_sortIndex ?? null,
       product_accounting_code: p.product_accountingCode ?? null,
+      product_color_class: p.product_colorClass ?? null,
+      product_type_id: p.product_type_id ?? null,
+      product_alternative_name_on_receipts: p.product_alternativeNameOnReceipts ?? null,
+      product_alternative_name_in_pos: p.product_alternativeNameInPos ?? null,
+      images: p.images ?? null,
+      product_type: p.product_type ?? null,
       product_created_at: toTimestamp(p.product_created_at),
       product_updated_at: toTimestamp(p.product_updated_at),
       raw: p,
