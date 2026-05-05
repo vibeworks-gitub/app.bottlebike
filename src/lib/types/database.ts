@@ -95,6 +95,42 @@ export type ProductExtra = {
   updated_at: string;
 };
 
+export type FixedCostFrequency = "daily" | "weekly" | "monthly" | "yearly";
+
+export type FixedCost = {
+  id: string;
+  owner_id: string;
+  name: string;
+  description: string | null;
+  category: string | null;
+  amount: number;
+  frequency: FixedCostFrequency;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type StaffCost = {
+  id: string;
+  owner_id: string;
+  r2o_user_id: number | null;
+  display_name: string;
+  role: string | null;
+  monthly_salary: number | null;
+  hourly_rate: number | null;
+  hours_per_week: number | null;
+  employer_cost_factor: number | null;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type IntegrationProvider = "ready2order";
 
 export type Integration = {
