@@ -97,8 +97,9 @@ export function SyncAllBar({
                 Schnell-Sync ({autoSyncMinutes ?? "—"}{" "}
                 {autoSyncMinutes ? "Min" : ""}):
               </span>{" "}
-              Holt nur die <em>neuen</em> oder geänderten Belege seit dem
-              letzten Lauf. Schnell, kostet kaum API-Anfragen.
+              Holt alle Stammdaten frisch (Produkte, Warengruppen, Kunden,
+              Mitarbeiter, Tische, Zahlungsarten, Rabatte) und zusätzlich nur
+              die <em>neuen</em> oder geänderten Belege seit dem letzten Lauf.
             </li>
             <li>
               <span className="font-medium text-foreground">

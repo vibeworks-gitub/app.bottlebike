@@ -61,7 +61,13 @@ function num(v: unknown): number | null {
 }
 
 // Run every sync for one user using the admin client (bypasses RLS).
-async function syncOneUser(integration: Integration): Promise<{
+// If includeInvoices=false, only reference data + products are pulled —
+// invoices stay untouched (used by the Schnell-Sync path which calls the
+// incremental helper for invoices instead).
+async function syncOneUser(
+  integration: Integration,
+  includeInvoices = true,
+): Promise<{
   ok: boolean;
   count: number;
   error?: string;
@@ -292,6 +298,10 @@ async function syncOneUser(integration: Integration): Promise<{
       count: total,
       error: `products: ${e instanceof Error ? e.message : String(e)}`,
     };
+  }
+
+  if (!includeInvoices) {
+    return { ok: true, count: total };
   }
 
   // invoices + items
@@ -697,28 +707,38 @@ export async function POST(req: NextRequest) {
     } else if (hasAuto && dueNow(integ)) {
       out.mode = "incremental";
       const t0 = Date.now();
-      const r = await syncInvoicesIncrementalForUser(integ);
-      out.incremental = r;
-      if (r.ok) {
+      // 1) Stammdaten + Produkte voll neu ziehen (Stammdaten ist klein, OK)
+      const refRes = await syncOneUser(integ, false);
+      // 2) Belege nur incremental (dateFrom-Filter)
+      const incRes = await syncInvoicesIncrementalForUser(integ);
+      out.headers = refRes;
+      out.incremental = incRes;
+      const ok = refRes.ok && incRes.ok;
+      if (ok) {
         await admin
           .from("integrations")
           .update({ last_synced_at: new Date().toISOString() })
           .eq("user_id", integ.user_id)
           .eq("provider", "ready2order");
       }
-      // Nur loggen wenn etwas passiert ist (sonst Spam jede 2 Min)
-      if (!r.ok || r.count > 0) {
+      const totalRecords = refRes.count + incRes.count;
+      // Loggen nur wenn etwas passiert ist oder Fehler — sonst Spam
+      if (!ok || totalRecords > 0) {
         await admin.from("r2o_sync_logs").insert({
           owner_id: integ.user_id,
           mode: "incremental",
           trigger: "cron",
-          ok: r.ok,
-          records: r.count,
+          ok,
+          records: totalRecords,
           duration_ms: Date.now() - t0,
-          message: r.ok
-            ? `Schnell-Sync · ${r.count} neue/geänderte Belege seit ${r.sinceDate}`
+          message: ok
+            ? `Schnell-Sync · ${refRes.count} Stammdaten · ${incRes.count} neue/geänderte Belege`
             : "Schnell-Sync fehlgeschlagen",
-          error: r.ok ? null : r.error,
+          error: ok
+            ? null
+            : [refRes.ok ? null : refRes.error, incRes.ok ? null : incRes.error]
+                .filter(Boolean)
+                .join(" · "),
         });
       }
     } else {
