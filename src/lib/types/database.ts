@@ -69,6 +69,18 @@ export type Quote = {
   updated_at: string;
 };
 
+export type IntegrationProvider = "ready2order";
+
+export type Integration = {
+  id: string;
+  user_id: string;
+  provider: IntegrationProvider;
+  account_token: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 export type QuoteItem = {
   id: string;
   quote_id: string;

@@ -6,10 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/logo";
 import type { Profile } from "@/lib/types/database";
 
-const NAV: Array<{ href: string; label: string; badge?: string }> = [
+const NAV: Array<{ href: string; label: string; badge?: string; group?: string }> = [
   { href: "/dashboard", label: "Übersicht" },
   { href: "/products", label: "Produkte" },
   { href: "/quotes", label: "Kalkulationen", badge: "bald" },
+  { href: "/integrations/ready2order", label: "ready2order", group: "Integrationen" },
 ];
 
 export default async function AppLayout({
@@ -49,20 +50,30 @@ export default async function AppLayout({
         </Link>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-3 text-sm">
-          {NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className="group flex items-center justify-between rounded-md px-3 py-2 font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-            >
-              <span>{item.label}</span>
-              {item.badge && (
-                <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
-                  {item.badge}
-                </span>
-              )}
-            </Link>
-          ))}
+          {NAV.map((item, idx) => {
+            const showGroup =
+              item.group && (idx === 0 || NAV[idx - 1]?.group !== item.group);
+            return (
+              <span key={item.href} className="contents">
+                {showGroup && (
+                  <span className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    {item.group}
+                  </span>
+                )}
+                <Link
+                  href={item.href}
+                  className="group flex items-center justify-between rounded-md px-3 py-2 font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                >
+                  <span>{item.label}</span>
+                  {item.badge && (
+                    <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">
+                      {item.badge}
+                    </span>
+                  )}
+                </Link>
+              </span>
+            );
+          })}
         </nav>
 
         <div className="border-t border-sidebar-border p-3">
