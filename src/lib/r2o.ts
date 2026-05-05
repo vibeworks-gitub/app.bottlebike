@@ -47,3 +47,26 @@ export async function r2oFetch<T = unknown>(
   }
   return res.json() as Promise<T>;
 }
+
+// Walks pages of a list endpoint and concatenates all rows.
+export async function r2oFetchAll<T>(
+  accountToken: string,
+  basePath: string,
+  pageSize = 250,
+): Promise<T[]> {
+  const out: T[] = [];
+  let page = 1;
+  for (;;) {
+    const sep = basePath.includes("?") ? "&" : "?";
+    const batch = await r2oFetch<T[]>(
+      accountToken,
+      `${basePath}${sep}limit=${pageSize}&page=${page}`,
+    );
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+    page += 1;
+    if (page > 200) break; // safety: max 50k rows
+  }
+  return out;
+}
