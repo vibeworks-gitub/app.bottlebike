@@ -363,55 +363,8 @@ async function syncOneUser(
       }
       total += invRows.length;
 
-      const itemRows: Record<string, unknown>[] = [];
-      for (const inv of invoices) {
-        const rawTx = inv.transaction;
-        const tx: Record<string, unknown>[] = Array.isArray(rawTx)
-          ? (rawTx as Record<string, unknown>[])
-          : rawTx && typeof rawTx === "object"
-            ? Object.values(rawTx as Record<string, Record<string, unknown>>)
-            : [];
-        tx.forEach((t, idx) => {
-          itemRows.push({
-            owner_id: ownerId,
-            invoice_id: inv.invoice_id as number,
-            invoice_item_index: idx,
-            transaction_id: (t.transaction_id as number | null) ?? null,
-            product_id: (t.product_id as number | null) ?? null,
-            transaction_text: (t.transaction_text as string | null) ?? null,
-            transaction_quantity: num(t.transaction_quantity),
-            transaction_price: num(t.transaction_price),
-            transaction_total: num(t.transaction_total),
-            transaction_vat: num(t.transaction_vat),
-            transaction_discount: num(t.transaction_discount),
-            raw: t,
-            synced_at: new Date().toISOString(),
-          });
-        });
-      }
-      const ids = invoices.map((i) => i.invoice_id as number);
-      const wipeChunk = 200;
-      for (let i = 0; i < ids.length; i += wipeChunk) {
-        await admin
-          .from("r2o_invoice_items")
-          .delete()
-          .eq("owner_id", ownerId)
-          .in("invoice_id", ids.slice(i, i + wipeChunk));
-      }
-      if (itemRows.length > 0) {
-        for (let i = 0; i < itemRows.length; i += chunkSize) {
-          const { error } = await admin
-            .from("r2o_invoice_items")
-            .insert(itemRows.slice(i, i + chunkSize));
-          if (error)
-            return {
-              ok: false,
-              count: total,
-              error: `invoice_items: ${error.message}`,
-            };
-        }
-        total += itemRows.length;
-      }
+      // Items werden separat über backfillItemsForUser geladen
+      // (das List-Endpoint liefert eh ein leeres transaction[]).
     }
   } catch (e) {
     return {
