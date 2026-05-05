@@ -40,20 +40,8 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-screen flex-1 bg-background">
       <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-        <div className="flex h-20 items-center gap-3 border-b border-sidebar-border px-5">
-          <Logo variant="mark" size={44} />
-          <span
-            className="font-heading"
-            style={{
-              color: "var(--brand)",
-              fontSize: "22px",
-              fontWeight: 800,
-              letterSpacing: "-0.045em",
-              lineHeight: 1,
-            }}
-          >
-            bottle bike
-          </span>
+        <div className="flex h-28 items-center justify-center border-b border-sidebar-border px-4 py-3">
+          <Logo size={88} />
         </div>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-3 text-sm">

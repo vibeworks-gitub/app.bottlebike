@@ -10,7 +10,7 @@ export default async function LoginPage({
   return (
     <main className="bg-mesh relative flex flex-1 items-center justify-center px-6 py-12">
       <div className="flex w-full max-w-sm flex-col items-center gap-6">
-        <Logo variant="full" size={140} />
+        <Logo size={140} />
         <LoginForm next={next} />
       </div>
     </main>
