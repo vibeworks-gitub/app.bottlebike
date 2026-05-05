@@ -66,7 +66,32 @@ export async function r2oFetchAll<T>(
     out.push(...batch);
     if (batch.length < pageSize) break;
     page += 1;
-    if (page > 200) break; // safety: max 50k rows
+    if (page > 200) break;
+  }
+  return out;
+}
+
+// Some endpoints (e.g. /v1/document/invoice) return { items: [...], count }
+export async function r2oFetchAllWrapped<T>(
+  accountToken: string,
+  basePath: string,
+  itemsKey: string,
+  pageSize = 250,
+): Promise<T[]> {
+  const out: T[] = [];
+  let offset = 0;
+  for (;;) {
+    const sep = basePath.includes("?") ? "&" : "?";
+    const res = await r2oFetch<Record<string, unknown>>(
+      accountToken,
+      `${basePath}${sep}limit=${pageSize}&offset=${offset}`,
+    );
+    const batch = (res[itemsKey] as T[] | undefined) ?? [];
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    out.push(...batch);
+    if (batch.length < pageSize) break;
+    offset += batch.length;
+    if (offset > 50_000) break;
   }
   return out;
 }
