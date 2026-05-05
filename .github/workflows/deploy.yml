@@ -18,10 +18,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build image
+        env:
+          SB_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL || 'https://yfligrkxswheunsugmci.supabase.co' }}
+          SB_KEY: ${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY || 'sb_publishable_sDOuqfPpe3mdH0rjzsCQSg_82yGvfrU' }}
         run: |
           docker build \
-            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ vars.NEXT_PUBLIC_SUPABASE_URL }}" \
-            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="$SB_URL" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="$SB_KEY" \
             -t bottlebike-app:latest \
             -t "bottlebike-app:${GITHUB_SHA::7}" \
             .

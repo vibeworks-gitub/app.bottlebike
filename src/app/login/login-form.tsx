@@ -22,12 +22,14 @@ export function LoginForm({ next }: { next?: string }) {
   );
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>{mode === "login" ? "Einloggen" : "Account anlegen"}</CardTitle>
+    <Card className="w-full shadow-lg ring-1 ring-foreground/5">
+      <CardHeader className="text-center">
+        <CardTitle className="font-heading text-xl tracking-tight">
+          {mode === "login" ? "Willkommen zurück" : "Account anlegen"}
+        </CardTitle>
         <CardDescription>
           {mode === "login"
-            ? "Mit E-Mail und Passwort anmelden."
+            ? "Melde dich mit deiner E-Mail an."
             : "Der erste Account wird automatisch Admin."}
         </CardDescription>
       </CardHeader>
@@ -42,6 +44,7 @@ export function LoginForm({ next }: { next?: string }) {
               type="email"
               autoComplete="email"
               required
+              placeholder="du@example.com"
             />
           </div>
           <div className="flex flex-col gap-2">
@@ -50,17 +53,23 @@ export function LoginForm({ next }: { next?: string }) {
               id="password"
               name="password"
               type="password"
-              autoComplete={mode === "login" ? "current-password" : "new-password"}
+              autoComplete={
+                mode === "login" ? "current-password" : "new-password"
+              }
               required
               minLength={mode === "signup" ? 8 : undefined}
+              placeholder="••••••••"
             />
           </div>
           {state.error && (
-            <p className="text-sm text-red-600" role="alert">
+            <p
+              className="rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+              role="alert"
+            >
               {state.error}
             </p>
           )}
-          <Button type="submit" disabled={pending}>
+          <Button type="submit" disabled={pending} className="mt-1">
             {pending
               ? "..."
               : mode === "login"
@@ -70,7 +79,7 @@ export function LoginForm({ next }: { next?: string }) {
           <button
             type="button"
             onClick={() => setMode(mode === "login" ? "signup" : "login")}
-            className="text-sm text-muted-foreground hover:underline"
+            className="text-center text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             {mode === "login"
               ? "Noch kein Account? Registrieren"

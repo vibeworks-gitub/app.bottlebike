@@ -4,44 +4,132 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
-  const [{ count: productCount }, { count: activeCount }] = await Promise.all([
-    supabase.from("products").select("*", { count: "exact", head: true }),
-    supabase
-      .from("products")
-      .select("*", { count: "exact", head: true })
-      .eq("active", true),
-  ]);
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const [{ count: productCount }, { count: activeCount }, { count: quoteCount }] =
+    await Promise.all([
+      supabase.from("products").select("*", { count: "exact", head: true }),
+      supabase
+        .from("products")
+        .select("*", { count: "exact", head: true })
+        .eq("active", true),
+      supabase.from("quotes").select("*", { count: "exact", head: true }),
+    ]);
+
+  const greeting = user?.email?.split("@")[0] ?? "";
 
   return (
-    <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold">Übersicht</h1>
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="flex flex-col gap-8">
+      <header className="relative overflow-hidden rounded-2xl bg-mesh px-6 py-7 ring-1 ring-foreground/5">
+        <p className="text-sm font-medium text-muted-foreground">
+          Willkommen{greeting ? `, ${greeting}` : ""}
+        </p>
+        <h1
+          className="mt-1 font-heading text-4xl font-extrabold"
+          style={{ color: "var(--brand)", letterSpacing: "-0.04em" }}
+        >
+          Übersicht
+        </h1>
+        <p className="mt-2 max-w-md text-sm text-muted-foreground">
+          Produkte verwalten, Margen kalkulieren — alles an einem Ort.
+        </p>
+      </header>
+
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Produkte gesamt" value={productCount ?? 0} accent />
+        <StatCard label="Aktive Produkte" value={activeCount ?? 0} />
+        <StatCard label="Kalkulationen" value={quoteCount ?? 0} hint="bald" />
+        <StatCard label="Offene Aufgaben" value={0} hint="bald" />
+      </section>
+
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Produkte gesamt
-            </CardTitle>
+            <CardTitle className="text-base">Schnellstart</CardTitle>
           </CardHeader>
-          <CardContent className="text-3xl font-semibold">
-            {productCount ?? 0}
+          <CardContent className="flex flex-col gap-2 text-sm">
+            <QuickLink href="/products/new" label="Neues Produkt anlegen" />
+            <QuickLink href="/products" label="Produkte verwalten" />
           </CardContent>
         </Card>
+
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Aktive Produkte
-            </CardTitle>
+            <CardTitle className="text-base">Hinweise</CardTitle>
           </CardHeader>
-          <CardContent className="text-3xl font-semibold">
-            {activeCount ?? 0}
+          <CardContent className="flex flex-col gap-2 text-sm text-muted-foreground">
+            <p>Kalkulationen (Angebote) folgen im nächsten Release.</p>
+            <p>
+              Marge wird automatisch aus Einkaufs- und Verkaufspreis
+              berechnet.
+            </p>
           </CardContent>
         </Card>
-      </div>
-      <div>
-        <Link href="/products" className="text-sm underline">
-          Zur Produktliste →
-        </Link>
-      </div>
+      </section>
     </div>
+  );
+}
+
+function StatCard({
+  label,
+  value,
+  hint,
+  accent,
+}: {
+  label: string;
+  value: number;
+  hint?: string;
+  accent?: boolean;
+}) {
+  return (
+    <Card
+      className="overflow-hidden transition-shadow hover:shadow-md"
+      style={
+        accent
+          ? {
+              backgroundImage:
+                "linear-gradient(135deg, var(--brand-soft), transparent 70%)",
+            }
+          : undefined
+      }
+    >
+      <CardHeader className="pb-2">
+        <CardTitle className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <span>{label}</span>
+          {hint && (
+            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] normal-case tracking-normal">
+              {hint}
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div
+          className="font-heading text-3xl font-extrabold tracking-tight"
+          style={accent ? { color: "var(--brand)" } : undefined}
+        >
+          {value}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link
+      href={href}
+      className="group flex items-center justify-between rounded-md border border-border bg-card px-4 py-3 transition hover:border-primary/40 hover:bg-accent/40"
+    >
+      <span className="font-medium">{label}</span>
+      <span
+        className="text-muted-foreground transition group-hover:translate-x-0.5"
+        style={{ color: "var(--brand)" }}
+      >
+        →
+      </span>
+    </Link>
   );
 }
