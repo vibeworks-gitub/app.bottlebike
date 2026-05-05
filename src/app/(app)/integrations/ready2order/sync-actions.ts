@@ -386,7 +386,12 @@ export async function syncInvoices(): Promise<SyncResult> {
     // Belegpositionen — replace per invoice (delete then insert)
     const itemRows: Record<string, unknown>[] = [];
     for (const inv of items) {
-      const tx = inv.transaction ?? [];
+      const rawTx = inv.transaction;
+      const tx: R2oInvoiceTransaction[] = Array.isArray(rawTx)
+        ? rawTx
+        : rawTx && typeof rawTx === "object"
+          ? Object.values(rawTx as Record<string, R2oInvoiceTransaction>)
+          : [];
       tx.forEach((t, idx) => {
         itemRows.push({
           owner_id: ownerId,

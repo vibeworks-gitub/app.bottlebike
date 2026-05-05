@@ -332,7 +332,12 @@ async function syncOneUser(integration: Integration): Promise<{
 
       const itemRows: Record<string, unknown>[] = [];
       for (const inv of invoices) {
-        const tx = (inv.transaction as Record<string, unknown>[] | null) ?? [];
+        const rawTx = inv.transaction;
+        const tx: Record<string, unknown>[] = Array.isArray(rawTx)
+          ? (rawTx as Record<string, unknown>[])
+          : rawTx && typeof rawTx === "object"
+            ? Object.values(rawTx as Record<string, Record<string, unknown>>)
+            : [];
         tx.forEach((t, idx) => {
           itemRows.push({
             owner_id: ownerId,
