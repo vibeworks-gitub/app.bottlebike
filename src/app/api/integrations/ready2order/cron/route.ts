@@ -531,9 +531,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const withAuto = (integrations ?? []).filter(
-    (i) => i.auto_sync_minutes != null && i.auto_sync_minutes > 0,
-  );
+  const all = integrations ?? [];
   const results: Record<
     string,
     {
@@ -542,10 +540,15 @@ export async function POST(req: NextRequest) {
     }
   > = {};
 
-  for (const integ of withAuto) {
+  for (const integ of all) {
     const out: (typeof results)[string] = {};
 
-    if (dueNow(integ)) {
+    // Header sync only when user opted into auto-sync and the interval elapsed
+    if (
+      integ.auto_sync_minutes != null &&
+      integ.auto_sync_minutes > 0 &&
+      dueNow(integ)
+    ) {
       const r = await syncOneUser(integ);
       out.headers = r;
       if (r.ok) {
@@ -557,7 +560,8 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Always work on the items backfill if there's anything pending
+    // Items backfill always runs while invoices have pending items —
+    // it's a one-shot catch-up and harmless once remaining = 0.
     out.items = await backfillItemsForUser(integ);
 
     results[integ.user_id] = out;
@@ -565,8 +569,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    checked: integrations?.length ?? 0,
-    auto: withAuto.length,
+    checked: all.length,
     results,
   });
 }
