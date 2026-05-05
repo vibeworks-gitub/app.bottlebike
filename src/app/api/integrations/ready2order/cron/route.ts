@@ -14,8 +14,18 @@ type Integration = {
 };
 
 const ITEMS_BATCH_PER_TICK = 40;
-const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+const FULL_SYNC_HOUR_VIENNA = 2; // 02:00 Europe/Vienna
+const FULL_SYNC_MIN_AGE_MS = 12 * 60 * 60 * 1000; // mindestens 12h zwischen Voll-Syncs
 const INCREMENTAL_OVERLAP_MS = 24 * 60 * 60 * 1000; // 1d Puffer für Stornos/Updates
+
+function viennaHour(now: Date = new Date()): number {
+  const s = now.toLocaleString("en-US", {
+    timeZone: "Europe/Vienna",
+    hour12: false,
+    hour: "2-digit",
+  });
+  return Number(s);
+}
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -32,11 +42,11 @@ function dueNow(integration: Integration): boolean {
 }
 
 function fullSyncDue(integration: Integration): boolean {
+  // Erster Voll-Sync: sofort wenn noch nie gemacht
   if (!integration.last_full_sync_at) return true;
-  return (
-    Date.now() - new Date(integration.last_full_sync_at).getTime() >=
-    FULL_SYNC_INTERVAL_MS
-  );
+  const ageMs = Date.now() - new Date(integration.last_full_sync_at).getTime();
+  // Nur in der 02-Uhr-Stunde (Wien) und mindestens 12h seit letztem Voll-Sync
+  return viennaHour() === FULL_SYNC_HOUR_VIENNA && ageMs >= FULL_SYNC_MIN_AGE_MS;
 }
 
 function toTimestamp(s: string | null | undefined): string | null {
@@ -660,8 +670,8 @@ export async function POST(req: NextRequest) {
       integ.auto_sync_minutes != null && integ.auto_sync_minutes > 0;
 
     if (hasAuto && fullSyncDue(integ)) {
-      // Daily full sync: re-fetches every resource (catches updates/deletes).
       out.mode = "full";
+      const t0 = Date.now();
       const r = await syncOneUser(integ);
       out.headers = r;
       if (r.ok) {
@@ -672,9 +682,21 @@ export async function POST(req: NextRequest) {
           .eq("user_id", integ.user_id)
           .eq("provider", "ready2order");
       }
+      await admin.from("r2o_sync_logs").insert({
+        owner_id: integ.user_id,
+        mode: "full",
+        trigger: "cron",
+        ok: r.ok,
+        records: r.count,
+        duration_ms: Date.now() - t0,
+        message: r.ok
+          ? `Voll-Sync · ${r.count} Datensätze`
+          : "Voll-Sync fehlgeschlagen",
+        error: r.ok ? null : r.error,
+      });
     } else if (hasAuto && dueNow(integ)) {
-      // Incremental: only invoices since the last cursor (rate-limit friendly).
       out.mode = "incremental";
+      const t0 = Date.now();
       const r = await syncInvoicesIncrementalForUser(integ);
       out.incremental = r;
       if (r.ok) {
@@ -684,13 +706,38 @@ export async function POST(req: NextRequest) {
           .eq("user_id", integ.user_id)
           .eq("provider", "ready2order");
       }
+      // Nur loggen wenn etwas passiert ist (sonst Spam jede 2 Min)
+      if (!r.ok || r.count > 0) {
+        await admin.from("r2o_sync_logs").insert({
+          owner_id: integ.user_id,
+          mode: "incremental",
+          trigger: "cron",
+          ok: r.ok,
+          records: r.count,
+          duration_ms: Date.now() - t0,
+          message: r.ok
+            ? `Schnell-Sync · ${r.count} neue/geänderte Belege seit ${r.sinceDate}`
+            : "Schnell-Sync fehlgeschlagen",
+          error: r.ok ? null : r.error,
+        });
+      }
     } else {
       out.mode = "skip";
     }
 
-    // Items backfill runs every tick while invoices have pending items —
-    // also covers items for invoices the incremental call just discovered.
+    const itemsT0 = Date.now();
     out.items = await backfillItemsForUser(integ);
+    if (out.items.processed > 0) {
+      await admin.from("r2o_sync_logs").insert({
+        owner_id: integ.user_id,
+        mode: "items",
+        trigger: "cron",
+        ok: true,
+        records: out.items.items,
+        duration_ms: Date.now() - itemsT0,
+        message: `Belegpositionen · ${out.items.processed} Belege · ${out.items.items} Positionen · noch ${out.items.remaining}`,
+      });
+    }
 
     results[integ.user_id] = out;
   }

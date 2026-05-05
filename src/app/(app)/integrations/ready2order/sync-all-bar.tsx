@@ -74,22 +74,8 @@ export function SyncAllBar({
               )}
             </CardTitle>
             <CardDescription className="max-w-2xl">
-              {isActive ? (
-                <>
-                  Neue Belege und Änderungen werden{" "}
-                  <span className="font-medium text-foreground">
-                    automatisch
-                  </span>{" "}
-                  alle {autoSyncMinutes} Minuten geladen. Einmal pro Tag wird
-                  der ganze Datenbestand frisch durchgegangen.
-                </>
-              ) : (
-                <>
-                  Du musst die Daten gerade noch manuell aktualisieren. Stell
-                  unten ein Intervall ein, dann läuft alles automatisch im
-                  Hintergrund.
-                </>
-              )}
+              Hält die Daten in bottlebike automatisch im Hintergrund mit
+              ready2order synchron — du musst nichts klicken.
             </CardDescription>
           </div>
           <Button
@@ -98,45 +84,88 @@ export function SyncAllBar({
             disabled={pending}
             className="shrink-0"
           >
-            {pending
-              ? "Lade alle Daten…"
-              : "Jetzt komplett neu laden"}
+            {pending ? "Lade alle Daten…" : "Jetzt komplett neu laden"}
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Stat label="Letzte Aktualisierung" value={relativeTime(lastSyncedAt)} />
-        <Stat
-          label="Letzter Voll-Sync"
-          value={relativeTime(lastFullSyncAt)}
-          hint={
-            isActive
-              ? "läuft automatisch alle 24 h"
-              : "noch nicht durchgeführt"
-          }
-        />
-        <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2">
-          <Label
-            htmlFor="auto-sync-interval"
-            className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
-          >
-            Auto-Sync-Intervall
-          </Label>
-          <form action={updateAutoSync}>
-            <select
-              id="auto-sync-interval"
-              name="minutes"
-              defaultValue={String(autoSyncMinutes ?? 0)}
-              onChange={(e) => e.currentTarget.form?.requestSubmit()}
-              className="w-full bg-transparent text-sm font-medium outline-none"
+      <CardContent className="flex flex-col gap-4">
+        <div className="rounded-md bg-muted/40 p-4 text-sm">
+          <p className="mb-2 font-medium">So funktioniert der Sync:</p>
+          <ul className="flex flex-col gap-1.5 text-muted-foreground">
+            <li>
+              <span className="font-medium text-foreground">
+                Schnell-Sync ({autoSyncMinutes ?? "—"}{" "}
+                {autoSyncMinutes ? "Min" : ""}):
+              </span>{" "}
+              Holt nur die <em>neuen</em> oder geänderten Belege seit dem
+              letzten Lauf. Schnell, kostet kaum API-Anfragen.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">
+                Voll-Sync (täglich um 02:00 Uhr):
+              </span>{" "}
+              Geht den kompletten Datenbestand neu durch — auch alte Belege,
+              Stornierungen, geänderte Stammdaten. Dauert länger, ist aber
+              die Sicherheitsschleife.
+            </li>
+            <li>
+              <span className="font-medium text-foreground">
+                Belegpositionen:
+              </span>{" "}
+              Was im Beleg verkauft wurde wird automatisch nachgeladen,
+              sobald ein neuer Beleg reinkommt (in derselben Minute).
+            </li>
+            <li>
+              Manuelles{" "}
+              <span className="font-medium text-foreground">
+                „Jetzt komplett neu laden"
+              </span>{" "}
+              triggert sofort einen Voll-Sync — z.B. wenn du gerade etwas in
+              ready2order geändert hast und es direkt sehen willst.
+            </li>
+          </ul>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Stat
+            label="Letzte Aktualisierung"
+            value={relativeTime(lastSyncedAt)}
+          />
+          <Stat
+            label="Letzter Voll-Sync"
+            value={relativeTime(lastFullSyncAt)}
+            hint={
+              isActive
+                ? "automatisch täglich um 02:00 Uhr"
+                : "Voll-Sync läuft erst wenn Auto-Sync aktiv"
+            }
+          />
+          <div className="flex flex-col gap-1.5 rounded-md border border-border bg-card px-3 py-2">
+            <Label
+              htmlFor="auto-sync-interval"
+              className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
             >
-              {INTERVALS.map((i) => (
-                <option key={i.value} value={i.value}>
-                  {i.label}
-                </option>
-              ))}
-            </select>
-          </form>
+              Schnell-Sync alle …
+            </Label>
+            <form action={updateAutoSync}>
+              <select
+                id="auto-sync-interval"
+                name="minutes"
+                defaultValue={String(autoSyncMinutes ?? 0)}
+                onChange={(e) => e.currentTarget.form?.requestSubmit()}
+                className="w-full bg-transparent text-sm font-medium outline-none"
+              >
+                {INTERVALS.map((i) => (
+                  <option key={i.value} value={i.value}>
+                    {i.label}
+                  </option>
+                ))}
+              </select>
+            </form>
+            <p className="text-[11px] text-muted-foreground">
+              Wie oft im Hintergrund nach neuen Belegen geschaut wird.
+            </p>
+          </div>
         </div>
       </CardContent>
     </Card>

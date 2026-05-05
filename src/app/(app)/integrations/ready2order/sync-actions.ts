@@ -590,6 +590,15 @@ export async function syncInvoiceItems(
       .is("items_synced_at", null);
 
     revalidatePath("/integrations/ready2order/invoices");
+    await logSync(
+      ownerId,
+      "items",
+      "manual",
+      true,
+      itemsTotal,
+      Date.now() - t0,
+      `Belegpositionen · ${ids.length} Belege · ${itemsTotal} Positionen · noch ${remaining ?? 0}`,
+    );
     return {
       ok: true,
       processed: ids.length,
@@ -896,6 +905,29 @@ export async function syncDiscountGroups(): Promise<SyncResult> {
   );
 }
 
+async function logSync(
+  ownerId: string,
+  mode: string,
+  trigger: string,
+  ok: boolean,
+  records: number,
+  durationMs: number,
+  message: string,
+  error?: string,
+) {
+  const supabase = await createClient();
+  await supabase.from("r2o_sync_logs").insert({
+    owner_id: ownerId,
+    mode,
+    trigger,
+    ok,
+    records,
+    duration_ms: durationMs,
+    message,
+    error: error ?? null,
+  });
+}
+
 export async function syncAll(): Promise<SyncResult> {
   try {
     const t0 = Date.now();
@@ -933,11 +965,21 @@ export async function syncAll(): Promise<SyncResult> {
       data: { user },
     } = await supabase.auth.getUser();
     if (user) {
+      const now = new Date().toISOString();
       await supabase
         .from("integrations")
-        .update({ last_synced_at: new Date().toISOString() })
+        .update({ last_synced_at: now, last_full_sync_at: now })
         .eq("user_id", user.id)
         .eq("provider", "ready2order");
+      await logSync(
+        user.id,
+        "full",
+        "manual",
+        true,
+        total,
+        Date.now() - t0,
+        `Voll-Sync · ${total} Datensätze`,
+      );
     }
 
     revalidatePath("/integrations/ready2order");
