@@ -47,7 +47,7 @@ export function ProductsView({
   groups: GroupOption[];
 }) {
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<Status>("all");
+  const [status, setStatus] = useState<Status>("active");
   const [vat, setVat] = useState<string>("all");
   const [stock, setStock] = useState<StockFilter>("all");
   const [group, setGroup] = useState<string>("all");
@@ -109,7 +109,7 @@ export function ProductsView({
 
   const reset = () => {
     setQ("");
-    setStatus("all");
+    setStatus("active");
     setVat("all");
     setStock("all");
     setGroup("all");
@@ -118,7 +118,7 @@ export function ProductsView({
 
   const isFiltered =
     q !== "" ||
-    status !== "all" ||
+    status !== "active" ||
     vat !== "all" ||
     stock !== "all" ||
     group !== "all" ||

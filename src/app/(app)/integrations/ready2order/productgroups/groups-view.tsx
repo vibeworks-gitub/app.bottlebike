@@ -45,7 +45,7 @@ export function GroupsView({
   products: GroupProduct[];
 }) {
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<Status>("all");
+  const [status, setStatus] = useState<Status>("active");
   const [parent, setParent] = useState<ParentFilter>("all");
   const [openId, setOpenId] = useState<number | null>(null);
 
@@ -97,11 +97,11 @@ export function GroupsView({
 
   const reset = () => {
     setQ("");
-    setStatus("all");
+    setStatus("active");
     setParent("all");
   };
 
-  const isFiltered = q !== "" || status !== "all" || parent !== "all";
+  const isFiltered = q !== "" || status !== "active" || parent !== "all";
 
   const totalProductsAssigned = useMemo(
     () => products.filter((p) => p.productgroup_id != null).length,
