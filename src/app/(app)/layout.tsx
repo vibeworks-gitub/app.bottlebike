@@ -41,10 +41,16 @@ export default async function AppLayout({
     <div className="flex min-h-screen flex-1 bg-background">
       <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
         <div className="flex h-20 items-center gap-3 border-b border-sidebar-border px-5">
-          <Logo variant="mark" size={32} />
+          <Logo variant="mark" size={44} />
           <span
-            className="font-heading text-[17px] font-extrabold tracking-tight"
-            style={{ color: "var(--brand)", letterSpacing: "-0.04em" }}
+            className="font-heading"
+            style={{
+              color: "var(--brand)",
+              fontSize: "22px",
+              fontWeight: 800,
+              letterSpacing: "-0.045em",
+              lineHeight: 1,
+            }}
           >
             bottle bike
           </span>
