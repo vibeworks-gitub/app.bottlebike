@@ -603,7 +603,9 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient();
   const { data: integrations, error } = await admin
     .from("integrations")
-    .select("user_id, account_token, auto_sync_minutes, last_synced_at")
+    .select(
+      "user_id, account_token, auto_sync_minutes, last_synced_at, last_full_sync_at",
+    )
     .eq("provider", "ready2order")
     .returns<Integration[]>();
 
