@@ -12,6 +12,8 @@ type Integration = {
   last_synced_at: string | null;
 };
 
+const ITEMS_BATCH_PER_TICK = 40;
+
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
   if (!secret) return false;
@@ -391,6 +393,128 @@ async function syncOneUser(integration: Integration): Promise<{
   return { ok: true, count: total };
 }
 
+async function backfillItemsForUser(integration: Integration): Promise<{
+  processed: number;
+  items: number;
+  remaining: number;
+}> {
+  const admin = createAdminClient();
+  const { user_id: ownerId, account_token: token } = integration;
+
+  const { data: pending } = await admin
+    .from("r2o_invoices")
+    .select("invoice_id")
+    .eq("owner_id", ownerId)
+    .is("items_synced_at", null)
+    .order("invoice_paid_date", { ascending: false })
+    .range(0, ITEMS_BATCH_PER_TICK - 1)
+    .returns<{ invoice_id: number }[]>();
+
+  const ids = (pending ?? []).map((r) => r.invoice_id);
+  if (ids.length === 0) {
+    const { count } = await admin
+      .from("r2o_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", ownerId)
+      .is("items_synced_at", null);
+    return { processed: 0, items: 0, remaining: count ?? 0 };
+  }
+
+  let itemsTotal = 0;
+  for (const id of ids) {
+    let detail: Record<string, unknown>;
+    try {
+      detail = await r2oFetch<Record<string, unknown>>(
+        token,
+        `/v1/document/invoice/${id}?include=transaction`,
+      );
+    } catch {
+      continue;
+    }
+    const itemsArr = Array.isArray(detail.items)
+      ? (detail.items as Record<string, unknown>[])
+      : [];
+
+    await admin
+      .from("r2o_invoice_items")
+      .delete()
+      .eq("owner_id", ownerId)
+      .eq("invoice_id", id);
+
+    if (itemsArr.length > 0) {
+      const rows = itemsArr.map((it) => ({
+        owner_id: ownerId,
+        invoice_id: id,
+        item_id: it.item_id as number,
+        product_id: (it.product_id as number | null) ?? null,
+        productgroup_id: (it.productGroup_id as number | null) ?? null,
+        productgroup_name: (it.productgroup_name as string | null) ?? null,
+        user_id: (it.user_id as number | null) ?? null,
+        user_name: (it.user_name as string | null) ?? null,
+        table_id: (it.table_id as number | null) ?? null,
+        table_name: (it.table_name as string | null) ?? null,
+        payment_method_id: (it.paymentMethod_id as number | null) ?? null,
+        daily_report_id: (it.dailyReport_id as number | null) ?? null,
+        item_name: (it.item_name as string | null) ?? null,
+        item_comment: (it.item_comment as string | null) ?? null,
+        item_quantity: num(it.item_quantity),
+        item_qty: num(it.item_qty),
+        item_price: num(it.item_price),
+        item_price_net: num(it.item_priceNet),
+        item_total: num(it.item_total),
+        item_total_net: num(it.item_totalNet),
+        item_vat: num(it.item_vat),
+        item_vat_rate: num(it.item_vatRate),
+        item_price_base: (it.item_priceBase as boolean | null) ?? null,
+        item_retour: (it.item_retour as boolean | null) ?? null,
+        item_discountable: (it.item_discountable as boolean | null) ?? null,
+        item_test_mode: (it.item_testMode as boolean | null) ?? null,
+        item_accounting_code: (it.item_accountingCode as string | null) ?? null,
+        item_timestamp: toTimestamp(it.item_timestamp as string | null),
+        item_product_name: (it.item_product_name as string | null) ?? null,
+        item_product_price: num(it.item_product_price),
+        item_product_price_net: num(it.item_product_priceNet),
+        item_product_price_per_unit: num(it.item_product_pricePerUnit),
+        item_product_price_net_per_unit: num(it.item_product_priceNetPerUnit),
+        item_product_vat: num(it.item_product_vat),
+        item_product_vat_rate: num(it.item_product_vatRate),
+        item_line_discount_id: (it.item_lineDiscountId as number | null) ?? null,
+        item_line_discount_name:
+          (it.item_lineDiscountName as string | null) ?? null,
+        item_line_discount_percent: num(it.item_lineDiscountPercent),
+        item_line_discount_gross: num(it.item_lineDiscountGross),
+        item_line_discount_net: num(it.item_lineDiscountNet),
+        item_invoice_discount_gross: num(it.item_invoiceDiscountGross),
+        item_invoice_discount_net: num(it.item_invoiceDiscountNet),
+        raw: it,
+        synced_at: new Date().toISOString(),
+      }));
+      await admin
+        .from("r2o_invoice_items")
+        .upsert(rows, { onConflict: "owner_id,item_id" });
+    }
+
+    await admin
+      .from("r2o_invoices")
+      .update({
+        items_synced_at: new Date().toISOString(),
+        items_count: itemsArr.length,
+      })
+      .eq("owner_id", ownerId)
+      .eq("invoice_id", id);
+
+    itemsTotal += itemsArr.length;
+  }
+
+  const { count: remaining } = await admin
+    .from("r2o_invoices")
+    .select("*", { count: "exact", head: true })
+    .eq("owner_id", ownerId)
+    .is("items_synced_at", null);
+
+  return { processed: ids.length, items: itemsTotal, remaining: remaining ?? 0 };
+}
+
 export async function POST(req: NextRequest) {
   if (!authorized(req)) {
     return new NextResponse("unauthorized", { status: 401 });
@@ -407,25 +531,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
   }
 
-  const due = (integrations ?? []).filter(dueNow);
-  const results: Record<string, { ok: boolean; count: number; error?: string }> = {};
-
-  for (const integ of due) {
-    const r = await syncOneUser(integ);
-    results[integ.user_id] = r;
-    if (r.ok) {
-      await admin
-        .from("integrations")
-        .update({ last_synced_at: new Date().toISOString() })
-        .eq("user_id", integ.user_id)
-        .eq("provider", "ready2order");
+  const withAuto = (integrations ?? []).filter(
+    (i) => i.auto_sync_minutes != null && i.auto_sync_minutes > 0,
+  );
+  const results: Record<
+    string,
+    {
+      headers?: { ok: boolean; count: number; error?: string };
+      items?: { processed: number; items: number; remaining: number };
     }
+  > = {};
+
+  for (const integ of withAuto) {
+    const out: (typeof results)[string] = {};
+
+    if (dueNow(integ)) {
+      const r = await syncOneUser(integ);
+      out.headers = r;
+      if (r.ok) {
+        await admin
+          .from("integrations")
+          .update({ last_synced_at: new Date().toISOString() })
+          .eq("user_id", integ.user_id)
+          .eq("provider", "ready2order");
+      }
+    }
+
+    // Always work on the items backfill if there's anything pending
+    out.items = await backfillItemsForUser(integ);
+
+    results[integ.user_id] = out;
   }
 
   return NextResponse.json({
     ok: true,
     checked: integrations?.length ?? 0,
-    due: due.length,
+    auto: withAuto.length,
     results,
   });
 }
