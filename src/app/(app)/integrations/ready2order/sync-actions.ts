@@ -383,56 +383,8 @@ export async function syncInvoices(): Promise<SyncResult> {
       if (error) return { ok: false, error: error.message };
     }
 
-    // Belegpositionen — replace per invoice (delete then insert)
-    const itemRows: Record<string, unknown>[] = [];
-    for (const inv of items) {
-      const rawTx = inv.transaction;
-      const tx: R2oInvoiceTransaction[] = Array.isArray(rawTx)
-        ? rawTx
-        : rawTx && typeof rawTx === "object"
-          ? Object.values(rawTx as Record<string, R2oInvoiceTransaction>)
-          : [];
-      tx.forEach((t, idx) => {
-        itemRows.push({
-          owner_id: ownerId,
-          invoice_id: inv.invoice_id,
-          invoice_item_index: idx,
-          transaction_id:
-            (t.transaction_id as number | null | undefined) ?? null,
-          product_id: (t.product_id as number | null | undefined) ?? null,
-          transaction_text:
-            (t.transaction_text as string | null | undefined) ?? null,
-          transaction_quantity: num(t.transaction_quantity),
-          transaction_price: num(t.transaction_price),
-          transaction_total: num(t.transaction_total),
-          transaction_vat: num(t.transaction_vat),
-          transaction_discount: num(t.transaction_discount),
-          raw: t,
-          synced_at: new Date().toISOString(),
-        });
-      });
-    }
-
-    // Wipe items belonging to invoices we just synced, then re-insert.
-    const invoiceIds = items.map((i) => i.invoice_id);
-    const wipeChunk = 200;
-    for (let k = 0; k < invoiceIds.length; k += wipeChunk) {
-      const { error } = await supabase
-        .from("r2o_invoice_items")
-        .delete()
-        .eq("owner_id", ownerId)
-        .in("invoice_id", invoiceIds.slice(k, k + wipeChunk));
-      if (error) return { ok: false, error: error.message };
-    }
-    if (itemRows.length > 0) {
-      for (let k = 0; k < itemRows.length; k += chunkSize) {
-        const { error } = await supabase
-          .from("r2o_invoice_items")
-          .insert(itemRows.slice(k, k + chunkSize));
-        if (error) return { ok: false, error: error.message };
-      }
-    }
-
+    // Belegpositionen sind im List-Endpoint immer leer und müssen separat
+    // pro Beleg via syncInvoiceItems() gezogen werden.
     revalidatePath("/integrations/ready2order/invoices");
     revalidatePath("/integrations/ready2order");
     return {
@@ -442,6 +394,218 @@ export async function syncInvoices(): Promise<SyncResult> {
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
+// Inkrementeller Items-Backfill — fetcht Details für Belege ohne items_synced_at
+type InvoiceItemRaw = Record<string, unknown> & {
+  item_id: number;
+  product_id?: number | null;
+  productGroup_id?: number | null;
+  productgroup_name?: string | null;
+  user_id?: number | null;
+  user_name?: string | null;
+  table_id?: number | null;
+  table_name?: string | null;
+  paymentMethod_id?: number | null;
+  dailyReport_id?: number | null;
+  item_name?: string | null;
+  item_comment?: string | null;
+  item_quantity?: number | null;
+  item_qty?: number | null;
+  item_price?: number | null;
+  item_priceNet?: number | null;
+  item_total?: number | null;
+  item_totalNet?: number | null;
+  item_vat?: number | null;
+  item_vatRate?: number | null;
+  item_priceBase?: boolean | null;
+  item_retour?: boolean | null;
+  item_discountable?: boolean | null;
+  item_testMode?: boolean | null;
+  item_accountingCode?: string | null;
+  item_timestamp?: string | null;
+  item_product_name?: string | null;
+  item_product_price?: number | null;
+  item_product_priceNet?: number | null;
+  item_product_pricePerUnit?: number | null;
+  item_product_priceNetPerUnit?: number | null;
+  item_product_vat?: number | null;
+  item_product_vatRate?: number | null;
+  item_lineDiscountId?: number | null;
+  item_lineDiscountName?: string | null;
+  item_lineDiscountPercent?: number | null;
+  item_lineDiscountGross?: number | null;
+  item_lineDiscountNet?: number | null;
+  item_invoiceDiscountGross?: number | null;
+  item_invoiceDiscountNet?: number | null;
+};
+
+type InvoiceDetail = {
+  invoice_id: number;
+  items?: InvoiceItemRaw[];
+};
+
+export type ItemsSyncResult = {
+  ok: boolean;
+  processed: number;
+  itemsTotal: number;
+  remaining: number;
+  durationMs: number;
+  error?: string;
+};
+
+export async function syncInvoiceItems(
+  batchSize = 50,
+): Promise<ItemsSyncResult> {
+  try {
+    const t0 = Date.now();
+    const { ownerId, token } = await getOwnerAndToken();
+    const supabase = await createClient();
+
+    const { data: pending } = await supabase
+      .from("r2o_invoices")
+      .select("invoice_id")
+      .eq("owner_id", ownerId)
+      .is("items_synced_at", null)
+      .order("invoice_paid_date", { ascending: false })
+      .range(0, batchSize - 1)
+      .returns<{ invoice_id: number }[]>();
+
+    const ids = (pending ?? []).map((r) => r.invoice_id);
+    if (ids.length === 0) {
+      const { count: remaining } = await supabase
+        .from("r2o_invoices")
+        .select("*", { count: "exact", head: true })
+        .eq("owner_id", ownerId)
+        .is("items_synced_at", null);
+      return {
+        ok: true,
+        processed: 0,
+        itemsTotal: 0,
+        remaining: remaining ?? 0,
+        durationMs: Date.now() - t0,
+      };
+    }
+
+    let itemsTotal = 0;
+    for (const id of ids) {
+      const detail = await r2oFetch<InvoiceDetail>(
+        token,
+        `/v1/document/invoice/${id}?include=transaction`,
+      );
+      const itemsArr = Array.isArray(detail.items) ? detail.items : [];
+
+      // wipe existing items for this invoice + re-insert
+      await supabase
+        .from("r2o_invoice_items")
+        .delete()
+        .eq("owner_id", ownerId)
+        .eq("invoice_id", id);
+
+      if (itemsArr.length > 0) {
+        const rows = itemsArr.map((it) => ({
+          owner_id: ownerId,
+          invoice_id: id,
+          item_id: it.item_id,
+          product_id: it.product_id ?? null,
+          productgroup_id: it.productGroup_id ?? null,
+          productgroup_name: it.productgroup_name ?? null,
+          user_id: it.user_id ?? null,
+          user_name: it.user_name ?? null,
+          table_id: it.table_id ?? null,
+          table_name: it.table_name ?? null,
+          payment_method_id: it.paymentMethod_id ?? null,
+          daily_report_id: it.dailyReport_id ?? null,
+          item_name: it.item_name ?? null,
+          item_comment: it.item_comment ?? null,
+          item_quantity: num(it.item_quantity),
+          item_qty: num(it.item_qty),
+          item_price: num(it.item_price),
+          item_price_net: num(it.item_priceNet),
+          item_total: num(it.item_total),
+          item_total_net: num(it.item_totalNet),
+          item_vat: num(it.item_vat),
+          item_vat_rate: num(it.item_vatRate),
+          item_price_base: it.item_priceBase ?? null,
+          item_retour: it.item_retour ?? null,
+          item_discountable: it.item_discountable ?? null,
+          item_test_mode: it.item_testMode ?? null,
+          item_accounting_code: it.item_accountingCode ?? null,
+          item_timestamp: toTimestamp(it.item_timestamp),
+          item_product_name: it.item_product_name ?? null,
+          item_product_price: num(it.item_product_price),
+          item_product_price_net: num(it.item_product_priceNet),
+          item_product_price_per_unit: num(it.item_product_pricePerUnit),
+          item_product_price_net_per_unit: num(
+            it.item_product_priceNetPerUnit,
+          ),
+          item_product_vat: num(it.item_product_vat),
+          item_product_vat_rate: num(it.item_product_vatRate),
+          item_line_discount_id: it.item_lineDiscountId ?? null,
+          item_line_discount_name: it.item_lineDiscountName ?? null,
+          item_line_discount_percent: num(it.item_lineDiscountPercent),
+          item_line_discount_gross: num(it.item_lineDiscountGross),
+          item_line_discount_net: num(it.item_lineDiscountNet),
+          item_invoice_discount_gross: num(it.item_invoiceDiscountGross),
+          item_invoice_discount_net: num(it.item_invoiceDiscountNet),
+          raw: it,
+          synced_at: new Date().toISOString(),
+        }));
+        const chunkSize = 500;
+        for (let k = 0; k < rows.length; k += chunkSize) {
+          const { error } = await supabase
+            .from("r2o_invoice_items")
+            .upsert(rows.slice(k, k + chunkSize), {
+              onConflict: "owner_id,item_id",
+            });
+          if (error)
+            return {
+              ok: false,
+              processed: 0,
+              itemsTotal,
+              remaining: 0,
+              durationMs: Date.now() - t0,
+              error: `invoice ${id}: ${error.message}`,
+            };
+        }
+      }
+
+      await supabase
+        .from("r2o_invoices")
+        .update({
+          items_synced_at: new Date().toISOString(),
+          items_count: itemsArr.length,
+        })
+        .eq("owner_id", ownerId)
+        .eq("invoice_id", id);
+
+      itemsTotal += itemsArr.length;
+    }
+
+    const { count: remaining } = await supabase
+      .from("r2o_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", ownerId)
+      .is("items_synced_at", null);
+
+    revalidatePath("/integrations/ready2order/invoices");
+    return {
+      ok: true,
+      processed: ids.length,
+      itemsTotal,
+      remaining: remaining ?? 0,
+      durationMs: Date.now() - t0,
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      processed: 0,
+      itemsTotal: 0,
+      remaining: 0,
+      durationMs: 0,
+      error: e instanceof Error ? e.message : String(e),
+    };
   }
 }
 

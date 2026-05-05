@@ -37,15 +37,15 @@ export type InvoiceRow = {
 
 export type InvoiceItem = {
   invoice_id: number;
-  invoice_item_index: number;
-  transaction_id: number | null;
+  item_id: number;
   product_id: number | null;
-  transaction_text: string | null;
-  transaction_quantity: number | null;
-  transaction_price: number | null;
-  transaction_total: number | null;
-  transaction_vat: number | null;
-  transaction_discount: number | null;
+  item_name: string | null;
+  item_quantity: number | null;
+  item_price: number | null;
+  item_total: number | null;
+  item_vat: number | null;
+  item_vat_rate: number | null;
+  item_retour: boolean | null;
 };
 
 type Status = "all" | "paid" | "open" | "deleted";
@@ -392,18 +392,26 @@ export function InvoicesView({
                                   </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                  {itemsForThis.map((it) => (
+                                  {itemsForThis.map((it, idx) => (
                                     <TableRow
-                                      key={it.invoice_item_index}
+                                      key={it.item_id}
                                       className="border-0 hover:bg-muted/30"
                                     >
                                       <TableCell className="font-mono text-xs text-muted-foreground">
-                                        {it.invoice_item_index + 1}
+                                        {idx + 1}
                                       </TableCell>
                                       <TableCell>
                                         <div className="flex flex-col">
                                           <span>
-                                            {it.transaction_text ?? "—"}
+                                            {it.item_name ?? "—"}
+                                            {it.item_retour && (
+                                              <Badge
+                                                variant="outline"
+                                                className="ml-2"
+                                              >
+                                                Retoure
+                                              </Badge>
+                                            )}
                                           </span>
                                           {it.product_id != null && (
                                             <span className="font-mono text-[10px] text-muted-foreground">
@@ -413,26 +421,24 @@ export function InvoicesView({
                                         </div>
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
-                                        {it.transaction_quantity ?? "—"}
+                                        {it.item_quantity ?? "—"}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
-                                        {it.transaction_price != null
-                                          ? formatEUR(it.transaction_price)
+                                        {it.item_price != null
+                                          ? formatEUR(it.item_price)
                                           : "—"}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
-                                        {it.transaction_vat != null
-                                          ? `${it.transaction_vat}%`
+                                        {it.item_vat_rate != null
+                                          ? `${it.item_vat_rate}%`
                                           : "—"}
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums">
-                                        {it.transaction_discount
-                                          ? formatEUR(it.transaction_discount)
-                                          : "—"}
+                                        —
                                       </TableCell>
                                       <TableCell className="text-right tabular-nums font-medium">
-                                        {it.transaction_total != null
-                                          ? formatEUR(it.transaction_total)
+                                        {it.item_total != null
+                                          ? formatEUR(it.item_total)
                                           : "—"}
                                       </TableCell>
                                     </TableRow>

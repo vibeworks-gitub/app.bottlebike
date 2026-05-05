@@ -6,15 +6,21 @@ import {
   type InvoiceRow,
   type InvoiceItem,
 } from "./invoices-view";
+import { ItemsSyncButton } from "./items-sync-button";
 
 export default async function R2oInvoicesPage() {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
   const [
     { data: invoices },
     { data: items },
     { data: pms },
     { data: users },
     { data: tables },
+    { count: totalInvoices },
+    { count: pendingItems },
   ] = await Promise.all([
     supabase
       .from("r2o_invoices")
@@ -27,9 +33,9 @@ export default async function R2oInvoicesPage() {
     supabase
       .from("r2o_invoice_items")
       .select(
-        "invoice_id, invoice_item_index, transaction_id, product_id, transaction_text, transaction_quantity, transaction_price, transaction_total, transaction_vat, transaction_discount",
+        "invoice_id, item_id, product_id, item_name, item_quantity, item_price, item_total, item_vat, item_vat_rate, item_retour",
       )
-      .order("invoice_item_index", { ascending: true })
+      .order("item_id", { ascending: true })
       .range(0, 499_999)
       .returns<InvoiceItem[]>(),
     supabase
@@ -39,6 +45,15 @@ export default async function R2oInvoicesPage() {
       .from("r2o_users")
       .select("r2o_user_id, user_first_name, user_last_name, user_username"),
     supabase.from("r2o_tables").select("table_id, table_name"),
+    supabase
+      .from("r2o_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id),
+    supabase
+      .from("r2o_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id)
+      .is("items_synced_at", null),
   ]);
 
   const lastSync = invoices?.[0]?.synced_at;
@@ -63,6 +78,10 @@ export default async function R2oInvoicesPage() {
         title="Belege"
         lastSync={lastSync}
         syncAction={syncInvoices}
+      />
+      <ItemsSyncButton
+        initialRemaining={pendingItems ?? 0}
+        initialTotal={totalInvoices ?? 0}
       />
       {!invoices?.length ? (
         <EmptyState resourceName="Belege" />
