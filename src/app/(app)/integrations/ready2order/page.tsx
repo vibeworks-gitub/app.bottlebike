@@ -11,6 +11,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { Integration } from "@/lib/types/database";
 import { startConnect, disconnect } from "./actions";
+import { SyncAllBar } from "./sync-all-bar";
 
 export default async function ReadyToOrderHome({
   searchParams,
@@ -109,6 +110,13 @@ export default async function ReadyToOrderHome({
           )}
         </CardContent>
       </Card>
+
+      {integration && (
+        <SyncAllBar
+          autoSyncMinutes={integration.auto_sync_minutes}
+          lastSyncedAt={integration.last_synced_at}
+        />
+      )}
 
       {integration && (
         <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">

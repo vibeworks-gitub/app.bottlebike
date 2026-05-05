@@ -77,6 +77,8 @@ export type Integration = {
   provider: IntegrationProvider;
   account_token: string;
   metadata: Record<string, unknown>;
+  auto_sync_minutes: number | null;
+  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
 };

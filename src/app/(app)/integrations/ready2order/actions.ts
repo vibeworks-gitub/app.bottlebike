@@ -51,3 +51,25 @@ export async function disconnect() {
 
   revalidatePath("/integrations/ready2order");
 }
+
+export async function updateAutoSync(formData: FormData): Promise<void> {
+  const minutesRaw = formData.get("minutes");
+  const minutes =
+    minutesRaw == null || minutesRaw === "0" || minutesRaw === ""
+      ? null
+      : Number(minutesRaw);
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("not authenticated");
+
+  await supabase
+    .from("integrations")
+    .update({ auto_sync_minutes: minutes })
+    .eq("user_id", user.id)
+    .eq("provider", "ready2order");
+
+  revalidatePath("/integrations/ready2order");
+}

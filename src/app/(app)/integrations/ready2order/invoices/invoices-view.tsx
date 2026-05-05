@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import {
   Table,
   TableBody,
@@ -35,15 +35,30 @@ export type InvoiceRow = {
   table_id: number | null;
 };
 
+export type InvoiceItem = {
+  invoice_id: number;
+  invoice_item_index: number;
+  transaction_id: number | null;
+  product_id: number | null;
+  transaction_text: string | null;
+  transaction_quantity: number | null;
+  transaction_price: number | null;
+  transaction_total: number | null;
+  transaction_vat: number | null;
+  transaction_discount: number | null;
+};
+
 type Status = "all" | "paid" | "open" | "deleted";
 
 export function InvoicesView({
   invoices,
+  items,
   paymentNames,
   userNames,
   tableNames,
 }: {
   invoices: InvoiceRow[];
+  items: InvoiceItem[];
   paymentNames: Record<number, string>;
   userNames: Record<number, string>;
   tableNames: Record<number, string>;
@@ -54,6 +69,17 @@ export function InvoicesView({
   const [status, setStatus] = useState<Status>("all");
   const [paymentMethod, setPaymentMethod] = useState<string>("all");
   const [includeTest, setIncludeTest] = useState<boolean>(false);
+  const [openId, setOpenId] = useState<number | null>(null);
+
+  const itemsByInvoice = useMemo(() => {
+    const m = new Map<number, InvoiceItem[]>();
+    for (const it of items) {
+      const list = m.get(it.invoice_id) ?? [];
+      list.push(it);
+      m.set(it.invoice_id, list);
+    }
+    return m;
+  }, [items]);
 
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -211,6 +237,7 @@ export function InvoicesView({
           <Table>
             <TableHeader>
               <TableRow className="bg-muted/40 hover:bg-muted/40">
+                <TableHead className="w-8" />
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Beleg
                 </TableHead>
@@ -225,6 +252,9 @@ export function InvoicesView({
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
                   Trinkgeld
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                  Pos.
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Zahlung
@@ -241,56 +271,182 @@ export function InvoicesView({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.map((i) => (
-                <TableRow key={i.invoice_id}>
-                  <TableCell className="font-mono text-xs">
-                    {i.invoice_number_full ?? i.invoice_number ?? `#${i.invoice_id}`}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    {i.invoice_paid_date
-                      ? new Date(i.invoice_paid_date).toLocaleString("de-DE")
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums font-medium">
-                    {formatEUR(i.invoice_total ?? 0)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatEUR(i.invoice_total_net ?? 0)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatEUR(i.invoice_total_tip ?? 0)}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {i.payment_method_id != null
-                      ? (paymentNames[i.payment_method_id] ?? `#${i.payment_method_id}`)
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {i.user_id != null
-                      ? (userNames[i.user_id] ?? `#${i.user_id}`)
-                      : "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {i.table_id != null
-                      ? (tableNames[i.table_id] ?? `#${i.table_id}`)
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {i.invoice_deleted_at ? (
-                        <Badge variant="outline">storniert</Badge>
-                      ) : i.invoice_paid ? (
-                        <Badge variant="secondary">bezahlt</Badge>
-                      ) : (
-                        <Badge variant="outline">offen</Badge>
-                      )}
-                      {i.invoice_test_mode && (
-                        <Badge variant="outline">test</Badge>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
+              {filtered.map((i) => {
+                const itemsForThis = itemsByInvoice.get(i.invoice_id) ?? [];
+                const isOpen = openId === i.invoice_id;
+                return (
+                  <Fragment key={i.invoice_id}>
+                    <TableRow
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() =>
+                        setOpenId(isOpen ? null : i.invoice_id)
+                      }
+                    >
+                      <TableCell className="text-muted-foreground">
+                        <span
+                          className={`inline-block transition-transform ${isOpen ? "rotate-90" : ""}`}
+                        >
+                          ▶
+                        </span>
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">
+                        {i.invoice_number_full ??
+                          i.invoice_number ??
+                          `#${i.invoice_id}`}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {i.invoice_paid_date
+                          ? new Date(i.invoice_paid_date).toLocaleString("de-DE")
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums font-medium">
+                        {formatEUR(i.invoice_total ?? 0)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatEUR(i.invoice_total_net ?? 0)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatEUR(i.invoice_total_tip ?? 0)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        <span
+                          className="rounded-full px-2 py-0.5 text-xs font-semibold"
+                          style={{
+                            backgroundColor:
+                              itemsForThis.length > 0
+                                ? "var(--brand-soft)"
+                                : "var(--muted)",
+                            color:
+                              itemsForThis.length > 0
+                                ? "var(--brand)"
+                                : "var(--muted-foreground)",
+                          }}
+                        >
+                          {itemsForThis.length}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {i.payment_method_id != null
+                          ? (paymentNames[i.payment_method_id] ??
+                            `#${i.payment_method_id}`)
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {i.user_id != null
+                          ? (userNames[i.user_id] ?? `#${i.user_id}`)
+                          : "—"}
+                      </TableCell>
+                      <TableCell className="text-xs text-muted-foreground">
+                        {i.table_id != null
+                          ? (tableNames[i.table_id] ?? `#${i.table_id}`)
+                          : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {i.invoice_deleted_at ? (
+                            <Badge variant="outline">storniert</Badge>
+                          ) : i.invoice_paid ? (
+                            <Badge variant="secondary">bezahlt</Badge>
+                          ) : (
+                            <Badge variant="outline">offen</Badge>
+                          )}
+                          {i.invoice_test_mode && (
+                            <Badge variant="outline">test</Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                    {isOpen && (
+                      <TableRow className="bg-muted/20 hover:bg-muted/20">
+                        <TableCell colSpan={11} className="p-0">
+                          {itemsForThis.length === 0 ? (
+                            <p className="px-6 py-4 text-sm text-muted-foreground">
+                              Keine Belegpositionen für diesen Beleg.
+                            </p>
+                          ) : (
+                            <div className="px-4 py-3">
+                              <Table>
+                                <TableHeader>
+                                  <TableRow className="border-0 hover:bg-transparent">
+                                    <TableHead className="h-8 text-[10px] font-semibold uppercase tracking-wider">
+                                      Pos
+                                    </TableHead>
+                                    <TableHead className="h-8 text-[10px] font-semibold uppercase tracking-wider">
+                                      Produkt
+                                    </TableHead>
+                                    <TableHead className="h-8 text-right text-[10px] font-semibold uppercase tracking-wider">
+                                      Menge
+                                    </TableHead>
+                                    <TableHead className="h-8 text-right text-[10px] font-semibold uppercase tracking-wider">
+                                      Einzelpreis
+                                    </TableHead>
+                                    <TableHead className="h-8 text-right text-[10px] font-semibold uppercase tracking-wider">
+                                      MwSt
+                                    </TableHead>
+                                    <TableHead className="h-8 text-right text-[10px] font-semibold uppercase tracking-wider">
+                                      Rabatt
+                                    </TableHead>
+                                    <TableHead className="h-8 text-right text-[10px] font-semibold uppercase tracking-wider">
+                                      Summe
+                                    </TableHead>
+                                  </TableRow>
+                                </TableHeader>
+                                <TableBody>
+                                  {itemsForThis.map((it) => (
+                                    <TableRow
+                                      key={it.invoice_item_index}
+                                      className="border-0 hover:bg-muted/30"
+                                    >
+                                      <TableCell className="font-mono text-xs text-muted-foreground">
+                                        {it.invoice_item_index + 1}
+                                      </TableCell>
+                                      <TableCell>
+                                        <div className="flex flex-col">
+                                          <span>
+                                            {it.transaction_text ?? "—"}
+                                          </span>
+                                          {it.product_id != null && (
+                                            <span className="font-mono text-[10px] text-muted-foreground">
+                                              Produkt #{it.product_id}
+                                            </span>
+                                          )}
+                                        </div>
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {it.transaction_quantity ?? "—"}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {it.transaction_price != null
+                                          ? formatEUR(it.transaction_price)
+                                          : "—"}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {it.transaction_vat != null
+                                          ? `${it.transaction_vat}%`
+                                          : "—"}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums">
+                                        {it.transaction_discount
+                                          ? formatEUR(it.transaction_discount)
+                                          : "—"}
+                                      </TableCell>
+                                      <TableCell className="text-right tabular-nums font-medium">
+                                        {it.transaction_total != null
+                                          ? formatEUR(it.transaction_total)
+                                          : "—"}
+                                      </TableCell>
+                                    </TableRow>
+                                  ))}
+                                </TableBody>
+                              </Table>
+                            </div>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </div>

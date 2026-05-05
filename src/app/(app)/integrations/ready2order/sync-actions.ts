@@ -275,6 +275,17 @@ async function syncResource<T>(
 }
 
 // ---------- INVOICES ----------
+type R2oInvoiceTransaction = Record<string, unknown> & {
+  transaction_id?: number | null;
+  product_id?: number | null;
+  transaction_text?: string | null;
+  transaction_quantity?: number | string | null;
+  transaction_price?: number | string | null;
+  transaction_total?: number | string | null;
+  transaction_vat?: number | string | null;
+  transaction_discount?: number | string | null;
+};
+
 type R2oInvoice = {
   invoice_id: number;
   invoice_number?: number | null;
@@ -304,14 +315,31 @@ type R2oInvoice = {
   dailyReport_number?: number | null;
   dailyReport_startDate?: string | null;
   dailyReport_endDate?: string | null;
+  transaction?: R2oInvoiceTransaction[] | null;
 };
 
+function num(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 export async function syncInvoices(): Promise<SyncResult> {
-  return syncResource<R2oInvoice>(
-    "/v1/document/invoice",
-    "r2o_invoices",
-    "owner_id,invoice_id",
-    (i, ownerId) => ({
+  try {
+    const t0 = Date.now();
+    const { ownerId, token } = await getOwnerAndToken();
+    const supabase = await createClient();
+
+    const items = await r2oFetchAllWrapped<R2oInvoice>(
+      token,
+      "/v1/document/invoice",
+      "invoices",
+    );
+    if (items.length === 0) {
+      return { ok: true, count: 0, durationMs: Date.now() - t0 };
+    }
+
+    const invoiceRows = items.map((i) => ({
       owner_id: ownerId,
       invoice_id: i.invoice_id,
       invoice_number: i.invoice_number ?? null,
@@ -343,10 +371,73 @@ export async function syncInvoices(): Promise<SyncResult> {
       daily_report_end_date: toTimestamp(i.dailyReport_endDate),
       raw: i,
       synced_at: new Date().toISOString(),
-    }),
-    { itemsKey: "invoices" },
-    ["/integrations/ready2order/invoices", "/integrations/ready2order"],
-  );
+    }));
+
+    const chunkSize = 500;
+    for (let k = 0; k < invoiceRows.length; k += chunkSize) {
+      const { error } = await supabase
+        .from("r2o_invoices")
+        .upsert(invoiceRows.slice(k, k + chunkSize), {
+          onConflict: "owner_id,invoice_id",
+        });
+      if (error) return { ok: false, error: error.message };
+    }
+
+    // Belegpositionen — replace per invoice (delete then insert)
+    const itemRows: Record<string, unknown>[] = [];
+    for (const inv of items) {
+      const tx = inv.transaction ?? [];
+      tx.forEach((t, idx) => {
+        itemRows.push({
+          owner_id: ownerId,
+          invoice_id: inv.invoice_id,
+          invoice_item_index: idx,
+          transaction_id:
+            (t.transaction_id as number | null | undefined) ?? null,
+          product_id: (t.product_id as number | null | undefined) ?? null,
+          transaction_text:
+            (t.transaction_text as string | null | undefined) ?? null,
+          transaction_quantity: num(t.transaction_quantity),
+          transaction_price: num(t.transaction_price),
+          transaction_total: num(t.transaction_total),
+          transaction_vat: num(t.transaction_vat),
+          transaction_discount: num(t.transaction_discount),
+          raw: t,
+          synced_at: new Date().toISOString(),
+        });
+      });
+    }
+
+    // Wipe items belonging to invoices we just synced, then re-insert.
+    const invoiceIds = items.map((i) => i.invoice_id);
+    const wipeChunk = 200;
+    for (let k = 0; k < invoiceIds.length; k += wipeChunk) {
+      const { error } = await supabase
+        .from("r2o_invoice_items")
+        .delete()
+        .eq("owner_id", ownerId)
+        .in("invoice_id", invoiceIds.slice(k, k + wipeChunk));
+      if (error) return { ok: false, error: error.message };
+    }
+    if (itemRows.length > 0) {
+      for (let k = 0; k < itemRows.length; k += chunkSize) {
+        const { error } = await supabase
+          .from("r2o_invoice_items")
+          .insert(itemRows.slice(k, k + chunkSize));
+        if (error) return { ok: false, error: error.message };
+      }
+    }
+
+    revalidatePath("/integrations/ready2order/invoices");
+    revalidatePath("/integrations/ready2order");
+    return {
+      ok: true,
+      count: invoiceRows.length,
+      durationMs: Date.now() - t0,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 // ---------- CUSTOMERS ----------
@@ -584,20 +675,105 @@ export async function syncR2oUsers(): Promise<SyncResult> {
   );
 }
 
-export async function syncAll(): Promise<{
-  ok: boolean;
-  results: Record<string, SyncResult>;
-}> {
-  const results: Record<string, SyncResult> = {};
-  results.productgroups = await syncProductGroups();
-  results.products = await syncProducts();
-  results.tableAreas = await syncTableAreas();
-  results.tables = await syncTables();
-  results.paymentMethods = await syncPaymentMethods();
-  results.discounts = await syncDiscounts();
-  results.users = await syncR2oUsers();
-  results.customers = await syncCustomers();
-  results.invoices = await syncInvoices();
-  const ok = Object.values(results).every((r) => r.ok);
-  return { ok, results };
+// ---------- BILL TYPES ----------
+type R2oBillType = {
+  billType_id: number;
+  billType_name?: string | null;
+  billType_symbol?: string | null;
+};
+
+export async function syncBillTypes(): Promise<SyncResult> {
+  return syncResource<R2oBillType>(
+    "/v1/billTypes",
+    "r2o_bill_types",
+    "owner_id,bill_type_id",
+    (b, ownerId) => ({
+      owner_id: ownerId,
+      bill_type_id: b.billType_id,
+      bill_type_name: b.billType_name ?? null,
+      bill_type_symbol: b.billType_symbol ?? null,
+      raw: b,
+      synced_at: new Date().toISOString(),
+    }),
+    "array",
+    ["/integrations/ready2order"],
+  );
+}
+
+// ---------- DISCOUNT GROUPS ----------
+type R2oDiscountGroup = {
+  discountGroup_id: number;
+  discountGroup_name?: string | null;
+  discountGroup_description?: string | null;
+  discountGroup_active?: boolean | null;
+};
+
+export async function syncDiscountGroups(): Promise<SyncResult> {
+  return syncResource<R2oDiscountGroup>(
+    "/v1/discountGroups",
+    "r2o_discount_groups",
+    "owner_id,discount_group_id",
+    (g, ownerId) => ({
+      owner_id: ownerId,
+      discount_group_id: g.discountGroup_id,
+      discount_group_name: g.discountGroup_name ?? null,
+      discount_group_description: g.discountGroup_description ?? null,
+      discount_group_active: g.discountGroup_active ?? null,
+      raw: g,
+      synced_at: new Date().toISOString(),
+    }),
+    "array",
+    ["/integrations/ready2order"],
+  );
+}
+
+export async function syncAll(): Promise<SyncResult> {
+  try {
+    const t0 = Date.now();
+    const results: Record<string, SyncResult> = {};
+    results.productgroups = await syncProductGroups();
+    results.products = await syncProducts();
+    results.tableAreas = await syncTableAreas();
+    results.tables = await syncTables();
+    results.paymentMethods = await syncPaymentMethods();
+    results.discountGroups = await syncDiscountGroups();
+    results.discounts = await syncDiscounts();
+    results.billTypes = await syncBillTypes();
+    results.users = await syncR2oUsers();
+    results.customers = await syncCustomers();
+    results.invoices = await syncInvoices();
+
+    const failed = Object.entries(results).filter(([, r]) => !r.ok);
+    if (failed.length > 0) {
+      return {
+        ok: false,
+        error: failed
+          .map(([k, r]) => `${k}: ${"error" in r ? r.error : "?"}`)
+          .join(" · "),
+      };
+    }
+
+    const total = Object.values(results).reduce(
+      (sum, r) => sum + ("count" in r ? r.count : 0),
+      0,
+    );
+
+    // bump last_synced_at on the integration
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      await supabase
+        .from("integrations")
+        .update({ last_synced_at: new Date().toISOString() })
+        .eq("user_id", user.id)
+        .eq("provider", "ready2order");
+    }
+
+    revalidatePath("/integrations/ready2order");
+    return { ok: true, count: total, durationMs: Date.now() - t0 };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }

@@ -1,12 +1,17 @@
 import { createClient } from "@/lib/supabase/server";
 import { syncInvoices } from "../sync-actions";
 import { ResourceHeader, EmptyState } from "../_components/page-header";
-import { InvoicesView, type InvoiceRow } from "./invoices-view";
+import {
+  InvoicesView,
+  type InvoiceRow,
+  type InvoiceItem,
+} from "./invoices-view";
 
 export default async function R2oInvoicesPage() {
   const supabase = await createClient();
   const [
     { data: invoices },
+    { data: items },
     { data: pms },
     { data: users },
     { data: tables },
@@ -18,6 +23,13 @@ export default async function R2oInvoicesPage() {
       )
       .order("invoice_paid_date", { ascending: false })
       .returns<(InvoiceRow & { synced_at: string })[]>(),
+    supabase
+      .from("r2o_invoice_items")
+      .select(
+        "invoice_id, invoice_item_index, transaction_id, product_id, transaction_text, transaction_quantity, transaction_price, transaction_total, transaction_vat, transaction_discount",
+      )
+      .order("invoice_item_index", { ascending: true })
+      .returns<InvoiceItem[]>(),
     supabase
       .from("r2o_payment_methods")
       .select("payment_id, payment_name"),
@@ -55,6 +67,7 @@ export default async function R2oInvoicesPage() {
       ) : (
         <InvoicesView
           invoices={invoices}
+          items={items ?? []}
           paymentNames={Object.fromEntries(paymentNames)}
           userNames={Object.fromEntries(userNames)}
           tableNames={Object.fromEntries(tableNames)}
