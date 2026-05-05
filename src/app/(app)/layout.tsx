@@ -9,6 +9,7 @@ import type { Profile } from "@/lib/types/database";
 const NAV: Array<{ href: string; label: string; badge?: string; group?: string }> = [
   { href: "/dashboard", label: "Übersicht" },
   { href: "/products", label: "Produkte" },
+  { href: "/suppliers", label: "Lieferanten" },
   { href: "/quotes", label: "Kalkulationen", badge: "bald" },
   { href: "/integrations/ready2order", label: "ready2order", group: "Integrationen" },
 ];

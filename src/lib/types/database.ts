@@ -14,13 +14,6 @@ export type Category = {
   created_at: string;
 };
 
-export type Supplier = {
-  id: string;
-  name: string;
-  contact: string | null;
-  notes: string | null;
-  created_at: string;
-};
 
 export type Product = {
   id: string;
@@ -65,6 +58,39 @@ export type Quote = {
   status: QuoteStatus;
   notes: string | null;
   created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type Supplier = {
+  id: string;
+  owner_id: string;
+  name: string;
+  contact_name: string | null;
+  email: string | null;
+  phone: string | null;
+  address: string | null;
+  notes: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProductExtra = {
+  owner_id: string;
+  r2o_product_id: number;
+  cost_price: number | null;
+  cost_includes_vat: boolean;
+  supplier_id: string | null;
+  reorder_level: number | null;
+  target_margin_pct: number | null;
+  package_unit: string | null;
+  package_qty: number | null;
+  custom_name: string | null;
+  custom_category: string | null;
+  notes: string | null;
+  last_purchase_date: string | null;
+  last_purchase_price: number | null;
   created_at: string;
   updated_at: string;
 };

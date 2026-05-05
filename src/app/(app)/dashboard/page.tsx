@@ -8,15 +8,30 @@ export default async function DashboardPage() {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ count: productCount }, { count: activeCount }, { count: quoteCount }] =
-    await Promise.all([
-      supabase.from("products").select("*", { count: "exact", head: true }),
-      supabase
-        .from("products")
-        .select("*", { count: "exact", head: true })
-        .eq("active", true),
-      supabase.from("quotes").select("*", { count: "exact", head: true }),
-    ]);
+  const [
+    { count: productCount },
+    { count: extrasCount },
+    { count: supplierCount },
+    { count: invoiceCount },
+  ] = await Promise.all([
+    supabase
+      .from("r2o_products")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id),
+    supabase
+      .from("bb_product_extras")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id)
+      .not("cost_price", "is", null),
+    supabase
+      .from("bb_suppliers")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id),
+    supabase
+      .from("r2o_invoices")
+      .select("*", { count: "exact", head: true })
+      .eq("owner_id", user!.id),
+  ]);
 
   const greeting = user?.email?.split("@")[0] ?? "";
 
@@ -38,10 +53,22 @@ export default async function DashboardPage() {
       </header>
 
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Produkte gesamt" value={productCount ?? 0} accent />
-        <StatCard label="Aktive Produkte" value={activeCount ?? 0} />
-        <StatCard label="Kalkulationen" value={quoteCount ?? 0} hint="bald" />
-        <StatCard label="Offene Aufgaben" value={0} hint="bald" />
+        <StatCard
+          label="Produkte (r2o)"
+          value={productCount ?? 0}
+          accent
+        />
+        <StatCard
+          label="EK gepflegt"
+          value={`${extrasCount ?? 0} / ${productCount ?? 0}`}
+          hint={
+            (productCount ?? 0) > 0
+              ? `${Math.round(((extrasCount ?? 0) / (productCount ?? 1)) * 100)}%`
+              : undefined
+          }
+        />
+        <StatCard label="Lieferanten" value={supplierCount ?? 0} />
+        <StatCard label="Belege (r2o)" value={invoiceCount ?? 0} />
       </section>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -50,8 +77,8 @@ export default async function DashboardPage() {
             <CardTitle className="text-base">Schnellstart</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-2 text-sm">
-            <QuickLink href="/products/new" label="Neues Produkt anlegen" />
-            <QuickLink href="/products" label="Produkte verwalten" />
+            <QuickLink href="/products" label="Produkte / EK pflegen" />
+            <QuickLink href="/suppliers" label="Lieferanten verwalten" />
           </CardContent>
         </Card>
 
@@ -79,7 +106,7 @@ function StatCard({
   accent,
 }: {
   label: string;
-  value: number;
+  value: number | string;
   hint?: string;
   accent?: boolean;
 }) {
