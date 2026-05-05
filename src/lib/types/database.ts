@@ -79,6 +79,7 @@ export type Integration = {
   metadata: Record<string, unknown>;
   auto_sync_minutes: number | null;
   last_synced_at: string | null;
+  last_full_sync_at: string | null;
   created_at: string;
   updated_at: string;
 };

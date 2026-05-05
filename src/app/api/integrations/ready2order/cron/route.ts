@@ -10,9 +10,12 @@ type Integration = {
   account_token: string;
   auto_sync_minutes: number | null;
   last_synced_at: string | null;
+  last_full_sync_at: string | null;
 };
 
 const ITEMS_BATCH_PER_TICK = 40;
+const FULL_SYNC_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24h
+const INCREMENTAL_OVERLAP_MS = 24 * 60 * 60 * 1000; // 1d Puffer für Stornos/Updates
 
 function authorized(req: NextRequest): boolean {
   const secret = process.env.CRON_SECRET;
@@ -26,6 +29,14 @@ function dueNow(integration: Integration): boolean {
   if (!integration.last_synced_at) return true;
   const elapsedMs = Date.now() - new Date(integration.last_synced_at).getTime();
   return elapsedMs >= integration.auto_sync_minutes * 60_000;
+}
+
+function fullSyncDue(integration: Integration): boolean {
+  if (!integration.last_full_sync_at) return true;
+  return (
+    Date.now() - new Date(integration.last_full_sync_at).getTime() >=
+    FULL_SYNC_INTERVAL_MS
+  );
 }
 
 function toTimestamp(s: string | null | undefined): string | null {
@@ -393,6 +404,102 @@ async function syncOneUser(integration: Integration): Promise<{
   return { ok: true, count: total };
 }
 
+async function syncInvoicesIncrementalForUser(
+  integration: Integration,
+): Promise<{ ok: boolean; count: number; sinceDate: string | null; error?: string }> {
+  const admin = createAdminClient();
+  const { user_id: ownerId, account_token: token } = integration;
+
+  // determine cursor: max(invoice_paid_date) - 1 day buffer
+  const { data: cursorRow } = await admin
+    .from("r2o_invoices")
+    .select("invoice_paid_date")
+    .eq("owner_id", ownerId)
+    .not("invoice_paid_date", "is", null)
+    .order("invoice_paid_date", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ invoice_paid_date: string | null }>();
+
+  const cursorMs = cursorRow?.invoice_paid_date
+    ? new Date(cursorRow.invoice_paid_date).getTime()
+    : null;
+  const sinceDate = cursorMs
+    ? new Date(cursorMs - INCREMENTAL_OVERLAP_MS).toISOString().slice(0, 10)
+    : null;
+
+  try {
+    const path = sinceDate
+      ? `/v1/document/invoice?dateFrom=${sinceDate}`
+      : "/v1/document/invoice";
+    const items = await r2oFetchAllWrapped<Record<string, unknown>>(
+      token,
+      path,
+      "invoices",
+    );
+    if (items.length === 0) {
+      return { ok: true, count: 0, sinceDate };
+    }
+
+    const rows = items.map((i) => ({
+      owner_id: ownerId,
+      invoice_id: i.invoice_id as number,
+      invoice_number: (i.invoice_number as number | null) ?? null,
+      invoice_number_full: (i.invoice_numberFull as string | null) ?? null,
+      invoice_timestamp: toTimestamp(i.invoice_timestamp as string | null),
+      invoice_paid: (i.invoice_paid as boolean | null) ?? null,
+      invoice_paid_date: toTimestamp(i.invoice_paidDate as string | null),
+      invoice_locked: (i.invoice_locked as boolean | null) ?? null,
+      invoice_total: (i.invoice_total as number | null) ?? null,
+      invoice_total_net: (i.invoice_totalNet as number | null) ?? null,
+      invoice_total_vat: (i.invoice_totalVat as number | null) ?? null,
+      invoice_total_tip: (i.invoice_totalTip as number | null) ?? null,
+      invoice_price_base: (i.invoice_priceBase as string | null) ?? null,
+      invoice_test_mode: (i.invoice_testMode as boolean | null) ?? null,
+      invoice_deleted_at: toTimestamp(i.invoice_deleted_at as string | null),
+      invoice_deleted_reason:
+        (i.invoice_deletedReason as string | null) ?? null,
+      invoice_due_date: toTimestamp(i.invoice_dueDate as string | null),
+      invoice_external_reference_number:
+        (i.invoice_externalReferenceNumber as string | null) ?? null,
+      customer_id: (i.customer_id as number | null) ?? null,
+      table_id: (i.table_id as number | null) ?? null,
+      table_area_id: (i.tableArea_id as number | null) ?? null,
+      payment_method_id: (i.paymentMethod_id as number | null) ?? null,
+      user_id: (i.user_id as number | null) ?? null,
+      bill_type_id: (i.billType_id as number | null) ?? null,
+      currency_id: (i.currency_id as number | null) ?? null,
+      daily_report_id: (i.dailyReport_id as number | null) ?? null,
+      daily_report_number: (i.dailyReport_number as number | null) ?? null,
+      daily_report_start_date: toTimestamp(
+        i.dailyReport_startDate as string | null,
+      ),
+      daily_report_end_date: toTimestamp(
+        i.dailyReport_endDate as string | null,
+      ),
+      raw: i,
+      synced_at: new Date().toISOString(),
+    }));
+
+    const chunkSize = 500;
+    for (let k = 0; k < rows.length; k += chunkSize) {
+      const { error } = await admin
+        .from("r2o_invoices")
+        .upsert(rows.slice(k, k + chunkSize), {
+          onConflict: "owner_id,invoice_id",
+        });
+      if (error) return { ok: false, count: 0, sinceDate, error: error.message };
+    }
+    return { ok: true, count: rows.length, sinceDate };
+  } catch (e) {
+    return {
+      ok: false,
+      count: 0,
+      sinceDate,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
+}
+
 async function backfillItemsForUser(integration: Integration): Promise<{
   processed: number;
   items: number;
@@ -535,22 +642,41 @@ export async function POST(req: NextRequest) {
   const results: Record<
     string,
     {
+      mode?: "full" | "incremental" | "skip";
       headers?: { ok: boolean; count: number; error?: string };
+      incremental?: {
+        ok: boolean;
+        count: number;
+        sinceDate: string | null;
+        error?: string;
+      };
       items?: { processed: number; items: number; remaining: number };
     }
   > = {};
 
   for (const integ of all) {
     const out: (typeof results)[string] = {};
+    const hasAuto =
+      integ.auto_sync_minutes != null && integ.auto_sync_minutes > 0;
 
-    // Header sync only when user opted into auto-sync and the interval elapsed
-    if (
-      integ.auto_sync_minutes != null &&
-      integ.auto_sync_minutes > 0 &&
-      dueNow(integ)
-    ) {
+    if (hasAuto && fullSyncDue(integ)) {
+      // Daily full sync: re-fetches every resource (catches updates/deletes).
+      out.mode = "full";
       const r = await syncOneUser(integ);
       out.headers = r;
+      if (r.ok) {
+        const now = new Date().toISOString();
+        await admin
+          .from("integrations")
+          .update({ last_synced_at: now, last_full_sync_at: now })
+          .eq("user_id", integ.user_id)
+          .eq("provider", "ready2order");
+      }
+    } else if (hasAuto && dueNow(integ)) {
+      // Incremental: only invoices since the last cursor (rate-limit friendly).
+      out.mode = "incremental";
+      const r = await syncInvoicesIncrementalForUser(integ);
+      out.incremental = r;
       if (r.ok) {
         await admin
           .from("integrations")
@@ -558,10 +684,12 @@ export async function POST(req: NextRequest) {
           .eq("user_id", integ.user_id)
           .eq("provider", "ready2order");
       }
+    } else {
+      out.mode = "skip";
     }
 
-    // Items backfill always runs while invoices have pending items —
-    // it's a one-shot catch-up and harmless once remaining = 0.
+    // Items backfill runs every tick while invoices have pending items —
+    // also covers items for invoices the incremental call just discovered.
     out.items = await backfillItemsForUser(integ);
 
     results[integ.user_id] = out;
