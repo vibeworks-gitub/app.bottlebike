@@ -40,9 +40,13 @@ export default async function AppLayout({
   return (
     <div className="flex min-h-screen flex-1 bg-background">
       <aside className="sticky top-0 flex h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar">
-        <div className="flex h-28 items-center justify-center border-b border-sidebar-border px-4 py-3">
+        <Link
+          href="/dashboard"
+          aria-label="Zur Übersicht"
+          className="flex h-28 items-center justify-center border-b border-sidebar-border px-4 py-3 transition-opacity hover:opacity-80"
+        >
           <Logo size={88} />
-        </div>
+        </Link>
 
         <nav className="flex flex-1 flex-col gap-0.5 p-3 text-sm">
           {NAV.map((item) => (
