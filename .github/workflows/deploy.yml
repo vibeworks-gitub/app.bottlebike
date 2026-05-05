@@ -29,9 +29,12 @@ jobs:
             -t "bottlebike-app:${GITHUB_SHA::7}" \
             .
 
+      - name: Sync compose file
+        run: cp infra/docker-compose.yml /opt/bottlebike/docker-compose.yml
+
       - name: Deploy
         working-directory: /opt/bottlebike
-        run: docker compose up -d --no-deps app
+        run: docker compose up -d --force-recreate --no-deps app
 
       - name: Wait for healthy
         run: |
