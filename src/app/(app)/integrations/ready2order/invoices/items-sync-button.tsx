@@ -17,6 +17,7 @@ export function ItemsSyncButton({
   const [running, setRunning] = useState(false);
 
   const synced = initialTotal - remaining;
+  const percent = initialTotal > 0 ? (synced / initialTotal) * 100 : 100;
 
   const runOnce = async () => {
     const r = await syncInvoiceItems(50);
@@ -25,9 +26,6 @@ export function ItemsSyncButton({
       return false;
     }
     setRemaining(r.remaining);
-    toast.success(
-      `${r.processed} Belege · ${r.itemsTotal} Positionen in ${(r.durationMs / 1000).toFixed(1)}s · noch ${r.remaining}`,
-    );
     return r.remaining > 0;
   };
 
@@ -36,10 +34,10 @@ export function ItemsSyncButton({
     start(async () => {
       try {
         let more = await runOnce();
-        // Auto-Schleife bis alle durch sind
         while (more) {
           more = await runOnce();
         }
+        toast.success("Alle Belegpositionen geladen.");
       } finally {
         setRunning(false);
       }
@@ -48,39 +46,75 @@ export function ItemsSyncButton({
 
   if (initialTotal === 0) return null;
 
+  const allDone = remaining === 0;
+
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-border bg-muted/30 px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm">
-          <span className="font-medium">Belegpositionen:</span>{" "}
-          <span className="tabular-nums">{synced}</span>{" "}
-          <span className="text-muted-foreground">/ {initialTotal} Belegen</span>
+    <div
+      className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4"
+      style={
+        allDone
+          ? undefined
+          : {
+              backgroundImage:
+                "linear-gradient(135deg, var(--brand-soft), transparent 70%)",
+            }
+      }
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <h3 className="font-heading text-base font-semibold">
+            Belegpositionen
+          </h3>
+          <p className="text-sm text-muted-foreground">
+            {allDone ? (
+              <>
+                Alle Positionen sind geladen ({initialTotal.toLocaleString("de-DE")}{" "}
+                Belege). Neue Belege werden automatisch ergänzt.
+              </>
+            ) : running ? (
+              <>
+                Lädt im Hintergrund — noch{" "}
+                <span className="font-medium text-foreground">{remaining}</span>{" "}
+                Belege übrig (~{Math.ceil(remaining / 40)} Min).
+              </>
+            ) : (
+              <>
+                <span className="font-medium text-foreground">
+                  {remaining.toLocaleString("de-DE")}
+                </span>{" "}
+                von {initialTotal.toLocaleString("de-DE")} Belegen haben noch
+                keine Positionen. Im Hintergrund läuft das automatisch jede Min.
+                — du kannst auch jetzt sofort starten.
+              </>
+            )}
+          </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant={remaining > 0 ? "default" : "outline"}
-          onClick={handle}
-          disabled={pending || remaining === 0}
-        >
-          {running
-            ? `Synchronisiere… (noch ${remaining})`
-            : remaining > 0
-              ? `${remaining} Belege laden`
-              : "Alles synchronisiert"}
-        </Button>
+        {!allDone && (
+          <Button
+            type="button"
+            size="sm"
+            onClick={handle}
+            disabled={pending}
+            className="shrink-0"
+          >
+            {running ? `Lädt… (noch ${remaining})` : "Jetzt sofort laden"}
+          </Button>
+        )}
       </div>
-      {initialTotal > 0 && (
-        <div className="h-1 overflow-hidden rounded-full bg-muted">
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-2 overflow-hidden rounded-full bg-muted">
           <div
             className="h-full transition-all"
             style={{
-              width: `${(synced / initialTotal) * 100}%`,
+              width: `${percent}%`,
               backgroundColor: "var(--brand)",
             }}
           />
         </div>
-      )}
+        <span className="shrink-0 tabular-nums text-xs font-medium text-muted-foreground">
+          {synced.toLocaleString("de-DE")} / {initialTotal.toLocaleString("de-DE")}
+        </span>
+      </div>
     </div>
   );
 }

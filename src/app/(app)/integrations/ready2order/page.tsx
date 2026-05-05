@@ -115,6 +115,7 @@ export default async function ReadyToOrderHome({
         <SyncAllBar
           autoSyncMinutes={integration.auto_sync_minutes}
           lastSyncedAt={integration.last_synced_at}
+          lastFullSyncAt={integration.last_full_sync_at}
         />
       )}
 
