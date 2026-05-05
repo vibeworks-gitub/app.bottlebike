@@ -1,0 +1,49 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_SUPABASE_URL="${{ vars.NEXT_PUBLIC_SUPABASE_URL }}" \
+            --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY="${{ vars.NEXT_PUBLIC_SUPABASE_ANON_KEY }}" \
+            -t bottlebike-app:latest \
+            -t "bottlebike-app:${GITHUB_SHA::7}" \
+            .
+
+      - name: Deploy
+        working-directory: /opt/bottlebike
+        run: docker compose up -d --no-deps app
+
+      - name: Wait for healthy
+        run: |
+          for i in {1..60}; do
+            status=$(docker inspect --format='{{.State.Health.Status}}' bottlebike-app 2>/dev/null || echo "unknown")
+            if [ "$status" = "healthy" ]; then
+              echo "App healthy after ${i}s"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Timed out waiting for healthy. Last logs:"
+          docker logs bottlebike-app --tail 80
+          exit 1
+
+      - name: Prune old images
+        if: success()
+        run: docker image prune -f --filter "label=org.opencontainers.image.source=https://github.com/${{ github.repository }}" --filter "until=72h" || true
