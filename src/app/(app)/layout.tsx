@@ -12,7 +12,7 @@ const NAV: Array<{ href: string; label: string; badge?: string; group?: string }
   { href: "/suppliers", label: "Lieferanten" },
   { href: "/fixed-costs", label: "Fixkosten", group: "Kalkulation" },
   { href: "/staff", label: "Personal", group: "Kalkulation" },
-  { href: "/calculation", label: "Auswertung", badge: "bald", group: "Kalkulation" },
+  { href: "/calculation", label: "Auswertung", group: "Kalkulation" },
   { href: "/integrations/ready2order", label: "ready2order", group: "Integrationen" },
 ];
 
