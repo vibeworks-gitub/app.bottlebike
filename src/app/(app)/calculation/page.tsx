@@ -81,34 +81,11 @@ export default async function CalculationPage({
       </header>
 
       {(r.invoiceCount === 0 || r.revenue === 0) && (
-        <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
-          {r.invoiceCount === 0 ? (
-            <>
-              <p className="font-medium">
-                Noch keine Belege im gewählten Zeitraum
-                {integration?.accounting_start_date
-                  ? ` (ab ${new Date(integration.accounting_start_date).toLocaleDateString("de-DE")})`
-                  : ""}
-                .
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Sobald über die ready2order-Kasse verkauft wird, fließen die
-                Belege innerhalb von 2 Min automatisch hier ein.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="font-medium">
-                {r.invoiceCount} Belege im Zeitraum, alle mit 0,00 € Umsatz.
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Wahrscheinlich nur RKSV-Pflichtbelege der Kasse (monatliche
-                Null-Belege fürs Finanzamt) — kein echter Verkauf. Sobald
-                über die Kasse verkauft wird, erscheinen die Beträge hier.
-              </p>
-            </>
-          )}
-        </div>
+        <p className="text-xs text-muted-foreground">
+          {r.invoiceCount === 0
+            ? `Keine Belege im Zeitraum${integration?.accounting_start_date ? ` (ab ${new Date(integration.accounting_start_date).toLocaleDateString("de-DE")})` : ""}.`
+            : `${r.invoiceCount} Belege, alle 0 € — vermutlich nur RKSV-Nullbelege der Kasse.`}
+        </p>
       )}
 
       {/* Period-Selector */}
