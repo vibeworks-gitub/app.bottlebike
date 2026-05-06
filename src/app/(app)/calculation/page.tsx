@@ -69,7 +69,7 @@ export default async function CalculationPage({
     supabase
       .from("bb_staff_costs")
       .select(
-        "monthly_salary, hourly_rate, hours_per_week, employer_cost_factor, active, end_date",
+        "monthly_salary, hourly_rate, hours_per_week, employer_cost_factor, commission_pct, active, end_date",
       )
       .eq("owner_id", user!.id)
       .eq("active", true)
@@ -80,6 +80,7 @@ export default async function CalculationPage({
           | "hourly_rate"
           | "hours_per_week"
           | "employer_cost_factor"
+          | "commission_pct"
           | "active"
           | "end_date"
         >[]
@@ -113,6 +114,15 @@ export default async function CalculationPage({
     (sum, s) => sum + staffCostMonthly(s),
     0,
   );
+  // Effektiver Provisions-Anteil vom Umsatz (inkl. Lohnnebenkosten):
+  // höchster Provisions-Satz × Employer-Cost-Faktor unter aktiven Provisions-Mitarbeitern
+  const staffCommissionEffectivePct = (staffCosts ?? [])
+    .filter((s) => Number(s.commission_pct ?? 0) > 0)
+    .reduce((maxPct, s) => {
+      const pct =
+        Number(s.commission_pct) * Number(s.employer_cost_factor ?? 1);
+      return pct > maxPct ? pct : maxPct;
+    }, 0);
 
   const productById = new Map(
     (r2oProducts ?? []).map((p) => [p.product_id, p]),
@@ -198,6 +208,7 @@ export default async function CalculationPage({
         <TargetCalculator
           monthlyFixedCosts={monthlyFixedCosts}
           monthlyStaffFixed={monthlyStaffFixed}
+          staffCommissionEffectivePct={staffCommissionEffectivePct}
           currentMarginPct={margin * 100}
           currentAvgInvoice={avgInvoice}
           products={productOptions}

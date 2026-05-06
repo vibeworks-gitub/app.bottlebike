@@ -17,12 +17,14 @@ type OutPeriod = "day" | "week" | "month";
 export function TargetCalculator({
   monthlyFixedCosts,
   monthlyStaffFixed,
+  staffCommissionEffectivePct,
   currentMarginPct,
   currentAvgInvoice,
   products,
 }: {
   monthlyFixedCosts: number;
   monthlyStaffFixed: number;
+  staffCommissionEffectivePct: number; // 0-100, Provision in % vom Umsatz inkl. LNK
   currentMarginPct: number;
   currentAvgInvoice: number;
   products: ProductOption[];
@@ -56,16 +58,25 @@ export function TargetCalculator({
   const bon = num(avgInvoice);
 
   // --- Berechnung (Monatsbasis) ---
-  const monthlyProvision = provDay * days; // Provision/Tag × Arbeitstage
-  const totalMonthlyCovered =
-    monthlyFixedCosts +
-    monthlyStaffFixed +
-    monthlyProvision +
-    fixSal +
-    profit;
+  // Provisions-Anteil der Mitarbeiter-Stammdaten (umsatzabhängig, daher nicht
+  // einfach addiert sondern von der Marge abgezogen)
+  const commissionRate = Math.min(
+    Math.max(staffCommissionEffectivePct, 0),
+    100,
+  ); // %
+  const monthlyProvision = provDay * days; // manueller Extra-Bonus pro Tag
+  const fixedToCover =
+    monthlyFixedCosts + monthlyStaffFixed + monthlyProvision + fixSal + profit;
 
+  // Effektive Marge nach Wareneinsatz und nach Provisions-Abzug:
+  //   Umsatz × (margin% − commission%) = Fix-Overhead + Ziel
+  //   Umsatz = Fix-Overhead / (margin% − commission%)
+  const effectiveMarginPct = margin - commissionRate;
   const requiredMonthlyRevenue =
-    margin > 0 ? totalMonthlyCovered / (margin / 100) : 0;
+    effectiveMarginPct > 0 ? fixedToCover / (effectiveMarginPct / 100) : 0;
+  const monthlyCommissionCost =
+    requiredMonthlyRevenue * (commissionRate / 100);
+  const totalMonthlyCovered = fixedToCover + monthlyCommissionCost;
   const requiredDailyRevenue = requiredMonthlyRevenue / days;
   const requiredWeeklyRevenue = (requiredMonthlyRevenue * 12) / 52;
 
@@ -103,10 +114,24 @@ export function TargetCalculator({
         <h3 className="font-heading text-base font-semibold mb-1">
           Ziel-Vorgaben
         </h3>
-        <p className="mb-4 text-xs text-muted-foreground">
+        <p className="mb-2 text-xs text-muted-foreground">
           Zusätzliche Personalkosten + dein Ziel-Gewinn. Alles wird live
           gegen die bestehenden Fixkosten + Personal-Fix verrechnet.
         </p>
+        {commissionRate > 0 && (
+          <p
+            className="mb-4 inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-xs"
+            style={{ color: "var(--brand)" }}
+          >
+            <span className="font-medium">
+              {commissionRate.toFixed(1)}% Provision
+            </span>
+            <span className="text-muted-foreground">
+              (inkl. LNK aus Personal-Stammdaten — wird automatisch von der
+              Marge abgezogen)
+            </span>
+          </p>
+        )}
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <FormField label="Provision pro Tag (€)" hint="z.B. 150 € pro Schicht">
@@ -195,17 +220,30 @@ export function TargetCalculator({
           label="Personal Fix-Anteil (aus Stammdaten)"
           value={formatEUR(monthlyStaffFixed)}
         />
+        {commissionRate > 0 && (
+          <CostRow
+            label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK auf erzielten Umsatz)`}
+            value={formatEUR(monthlyCommissionCost)}
+          />
+        )}
         <CostRow
-          label={`Provision (${formatEUR(provDay)} × ${days} Tage)`}
+          label={`Extra-Provision (${formatEUR(provDay)} × ${days} Tage)`}
           value={formatEUR(monthlyProvision)}
         />
         <CostRow label="Fixgehalt zusätzlich" value={formatEUR(fixSal)} />
         <CostRow label="Ziel-Gewinn" value={formatEUR(profit)} />
         <CostRow
-          label="= Aufbringbar / Monat (Rohertrag)"
+          label="= Aufbringbar / Monat (Gesamt)"
           value={formatEUR(totalMonthlyCovered)}
           bold
         />
+        {commissionRate >= margin && commissionRate > 0 && (
+          <p className="mt-3 text-xs text-amber-700">
+            ⚠️ Personal-Provision ({commissionRate.toFixed(1)}%) ist höher als
+            deine Marge ({margin}%) — mit dieser Konstellation lässt sich kein
+            Gewinn erzielen. Marge erhöhen oder Provisionssatz senken.
+          </p>
+        )}
       </div>
 
       {/* Was du dafür verkaufen musst */}
