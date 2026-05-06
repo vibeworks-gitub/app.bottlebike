@@ -159,9 +159,28 @@ export async function calculateForPeriod(
   supabase: SupabaseClient<any>,
   ownerId: string,
   period: Period,
+  accountingStartDate: string | null = null,
 ): Promise<CalculationResult> {
-  const fromIso = period.from.toISOString();
+  // Effektives From: max(period.from, accounting_start_date)
+  let effectiveFrom = period.from;
+  if (accountingStartDate) {
+    const start = new Date(accountingStartDate + "T00:00:00");
+    if (start > effectiveFrom) effectiveFrom = start;
+  }
+  const fromIso = effectiveFrom.toISOString();
   const toIso = period.to.toISOString();
+  // recompute days for proportional fixed/staff costs
+  const effectiveDays = Math.max(
+    1,
+    Math.floor(
+      (period.to.getTime() - effectiveFrom.getTime()) / 86400000 + 1,
+    ),
+  );
+  const effectivePeriod: Period = {
+    ...period,
+    from: effectiveFrom,
+    days: effectiveDays,
+  };
 
   const [
     { data: invoices },
@@ -286,7 +305,7 @@ export async function calculateForPeriod(
     if (!isActiveAt(s, period.to)) continue;
     // Fix-Anteil (Monatslohn / Stundenlohn) für Periode
     const daily = staffCostDaily(s);
-    staffFixed += daily * period.days;
+    staffFixed += daily * effectivePeriod.days;
     // Provision basierend auf eigenem Umsatz im Zeitraum
     if (s.commission_pct != null && s.r2o_user_id != null) {
       const userRev = revenueByUser.get(s.r2o_user_id) ?? 0;
@@ -299,7 +318,7 @@ export async function calculateForPeriod(
   let fixedCosts = 0;
   for (const c of fixed ?? []) {
     if (!isActiveAt(c, period.to)) continue;
-    fixedCosts += fixedCostDaily(c) * period.days;
+    fixedCosts += fixedCostDaily(c) * effectivePeriod.days;
   }
 
   const totalCosts = cogs + staffTotal + fixedCosts;

@@ -8,7 +8,6 @@ const PRESETS = [
   { value: "week", label: "Diese Woche" },
   { value: "month", label: "Dieser Monat" },
   { value: "ytd", label: "Bisher dieses Jahr" },
-  { value: "year", label: "Letzte 12 Monate" },
 ] as const;
 
 type Preset = (typeof PRESETS)[number]["value"];
@@ -27,8 +26,21 @@ export default async function CalculationPage({
     data: { user },
   } = await supabase.auth.getUser();
 
+  // Stichtag aus Integration laden — Daten davor werden ignoriert
+  const { data: integration } = await supabase
+    .from("integrations")
+    .select("accounting_start_date")
+    .eq("user_id", user!.id)
+    .eq("provider", "ready2order")
+    .maybeSingle<{ accounting_start_date: string | null }>();
+
   const period = periodFor(preset);
-  const r = await calculateForPeriod(supabase, user!.id, period);
+  const r = await calculateForPeriod(
+    supabase,
+    user!.id,
+    period,
+    integration?.accounting_start_date ?? null,
+  );
 
   const margin = r.revenue > 0 ? r.grossProfit / r.revenue : 0;
   const profitMargin = r.revenue > 0 ? r.profit / r.revenue : 0;
