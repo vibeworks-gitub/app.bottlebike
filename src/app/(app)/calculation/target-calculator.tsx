@@ -188,30 +188,51 @@ export function TargetCalculator({
         </details>
       </div>
 
-      {/* Was es kostet (immer auf Monat) */}
+      {/* Was es kostet (mit Period-Toggle) */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h3 className="font-heading text-base font-semibold mb-3">
-          Monatliche Aufwände + Ziel
-        </h3>
-        <CostRow label="Fixkosten" value={formatEUR(monthlyFixedCosts)} />
-        {monthlyStaffFixed > 0 && (
-          <CostRow
-            label="Personal Fix-Anteil (aus Stammdaten)"
-            value={formatEUR(monthlyStaffFixed)}
-          />
-        )}
-        {commissionRate > 0 && (
-          <CostRow
-            label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK auf erzielten Umsatz)`}
-            value={formatEUR(monthlyCommissionCost)}
-          />
-        )}
-        <CostRow label="Ziel-Gewinn" value={formatEUR(profit)} />
-        <CostRow
-          label="= Aufbringbar / Monat (Gesamt)"
-          value={formatEUR(totalMonthlyCovered)}
-          bold
-        />
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-heading text-base font-semibold">
+            Aufwände + Ziel {periodLabel[outPeriod]}
+          </h3>
+          <PeriodToggle value={outPeriod} onChange={setOutPeriod} />
+        </div>
+        {(() => {
+          const factor =
+            outPeriod === "day"
+              ? 1 / days
+              : outPeriod === "week"
+                ? 12 / 52
+                : 1;
+          return (
+            <>
+              <CostRow
+                label="Fixkosten"
+                value={formatEUR(monthlyFixedCosts * factor)}
+              />
+              {monthlyStaffFixed > 0 && (
+                <CostRow
+                  label="Personal Fix-Anteil (aus Stammdaten)"
+                  value={formatEUR(monthlyStaffFixed * factor)}
+                />
+              )}
+              {commissionRate > 0 && (
+                <CostRow
+                  label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK auf erzielten Umsatz)`}
+                  value={formatEUR(monthlyCommissionCost * factor)}
+                />
+              )}
+              <CostRow
+                label="Ziel-Gewinn"
+                value={formatEUR(profit * factor)}
+              />
+              <CostRow
+                label={`= Aufbringbar ${periodLabel[outPeriod]} (Gesamt)`}
+                value={formatEUR(totalMonthlyCovered * factor)}
+                bold
+              />
+            </>
+          );
+        })()}
         {commissionRate >= margin && commissionRate > 0 && (
           <p className="mt-3 text-xs text-amber-700">
             ⚠️ Personal-Provision ({commissionRate.toFixed(1)}%) ist höher als
@@ -230,36 +251,7 @@ export function TargetCalculator({
           <h3 className="font-heading text-base font-semibold">
             Was du dafür verkaufen musst
           </h3>
-          <div className="inline-flex rounded-md border border-border bg-background p-0.5">
-            {(
-              [
-                { v: "day", label: "Tag" },
-                { v: "week", label: "Woche" },
-                { v: "month", label: "Monat" },
-              ] as const
-            ).map((opt) => (
-              <button
-                key={opt.v}
-                type="button"
-                onClick={() => setOutPeriod(opt.v)}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  outPeriod === opt.v
-                    ? "shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-                style={
-                  outPeriod === opt.v
-                    ? {
-                        backgroundColor: "var(--brand)",
-                        color: "var(--primary-foreground)",
-                      }
-                    : undefined
-                }
-              >
-                {opt.label}
-              </button>
-            ))}
-          </div>
+          <PeriodToggle value={outPeriod} onChange={setOutPeriod} />
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -345,6 +337,47 @@ export function TargetCalculator({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function PeriodToggle({
+  value,
+  onChange,
+}: {
+  value: OutPeriod;
+  onChange: (v: OutPeriod) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-md border border-border bg-background p-0.5">
+      {(
+        [
+          { v: "day", label: "Tag" },
+          { v: "week", label: "Woche" },
+          { v: "month", label: "Monat" },
+        ] as const
+      ).map((opt) => (
+        <button
+          key={opt.v}
+          type="button"
+          onClick={() => onChange(opt.v)}
+          className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+            value === opt.v
+              ? "shadow-sm"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+          style={
+            value === opt.v
+              ? {
+                  backgroundColor: "var(--brand)",
+                  color: "var(--primary-foreground)",
+                }
+              : undefined
+          }
+        >
+          {opt.label}
+        </button>
+      ))}
     </div>
   );
 }
