@@ -192,7 +192,7 @@ export function TargetCalculator({
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="font-heading text-base font-semibold">
-            Aufwände + Ziel {periodLabel[outPeriod]}
+            Kosten-Aufstellung {periodLabel[outPeriod]}
           </h3>
           <PeriodToggle value={outPeriod} onChange={setOutPeriod} />
         </div>
@@ -203,8 +203,21 @@ export function TargetCalculator({
               : outPeriod === "week"
                 ? 12 / 52
                 : 1;
+          // Materialkosten = Wareneinsatz auf den nötigen Umsatz
+          const monthlyMaterialCost =
+            requiredMonthlyRevenue * (1 - margin / 100);
           return (
             <>
+              <CostRow
+                label={`Materialkosten / Wareneinsatz (${(100 - margin).toFixed(0)}% vom Umsatz)`}
+                value={formatEUR(monthlyMaterialCost * factor)}
+              />
+              {commissionRate > 0 && (
+                <CostRow
+                  label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK vom Umsatz)`}
+                  value={formatEUR(monthlyCommissionCost * factor)}
+                />
+              )}
               <CostRow
                 label="Fixkosten"
                 value={formatEUR(monthlyFixedCosts * factor)}
@@ -215,19 +228,13 @@ export function TargetCalculator({
                   value={formatEUR(monthlyStaffFixed * factor)}
                 />
               )}
-              {commissionRate > 0 && (
-                <CostRow
-                  label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK auf erzielten Umsatz)`}
-                  value={formatEUR(monthlyCommissionCost * factor)}
-                />
-              )}
               <CostRow
                 label="Ziel-Gewinn"
                 value={formatEUR(profit * factor)}
               />
               <CostRow
-                label={`= Aufbringbar ${periodLabel[outPeriod]} (Gesamt)`}
-                value={formatEUR(totalMonthlyCovered * factor)}
+                label={`= Umsatz nötig ${periodLabel[outPeriod]}`}
+                value={formatEUR(requiredMonthlyRevenue * factor)}
                 bold
               />
             </>
