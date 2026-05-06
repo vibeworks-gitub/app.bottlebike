@@ -25,6 +25,13 @@ export function fixedCostMonthly(
   return fixedCostDaily(c) * DAYS_PER_MONTH;
 }
 
+export function isCommissionStaff(s: Pick<StaffCost, "commission_pct">): boolean {
+  return s.commission_pct != null;
+}
+
+// Berechnet Fix-Anteile (ohne Provision). Provision wird separat über
+// staffCommissionMonthly(s, monthlyRevenue) berechnet, weil sie vom
+// tatsächlich erzielten Umsatz abhängt.
 export function staffCostMonthly(
   s: Pick<
     StaffCost,
@@ -34,8 +41,12 @@ export function staffCostMonthly(
   const factor = s.employer_cost_factor ?? 1.3;
   if (s.monthly_salary != null) return s.monthly_salary * factor;
   if (s.hourly_rate != null && s.hours_per_week != null) {
-    // hourly × hours/week × ~4.345 weeks/month
-    return s.hourly_rate * s.hours_per_week * (DAYS_PER_MONTH / DAYS_PER_WEEK) * factor;
+    return (
+      s.hourly_rate *
+      s.hours_per_week *
+      (DAYS_PER_MONTH / DAYS_PER_WEEK) *
+      factor
+    );
   }
   return 0;
 }
@@ -47,6 +58,15 @@ export function staffCostDaily(
   >,
 ): number {
   return staffCostMonthly(s) / DAYS_PER_MONTH;
+}
+
+export function staffCommission(
+  s: Pick<StaffCost, "commission_pct" | "employer_cost_factor">,
+  revenue: number,
+): number {
+  if (s.commission_pct == null) return 0;
+  const factor = s.employer_cost_factor ?? 1.3;
+  return revenue * (s.commission_pct / 100) * factor;
 }
 
 export function frequencyLabel(f: FixedCost["frequency"]): string {

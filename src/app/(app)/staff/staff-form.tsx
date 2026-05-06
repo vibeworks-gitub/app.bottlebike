@@ -94,9 +94,26 @@ export function StaffForm({
           <CardTitle>Lohnmodell</CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="md:col-span-2 text-xs text-muted-foreground">
-            Wähle <em>entweder</em> Monatslohn <em>oder</em> Stundensatz +
-            Wochenstunden.
+          <div className="md:col-span-2 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+            Drei mögliche Modelle (eines reicht, kombinierbar). Alle
+            Beträge werden mit dem Lohnnebenkosten-Faktor multipliziert
+            (= SV-pflichtig):
+            <ul className="mt-2 ml-4 list-disc space-y-0.5">
+              <li>
+                <strong className="text-foreground">Monatslohn</strong> —
+                fester Betrag pro Monat
+              </li>
+              <li>
+                <strong className="text-foreground">
+                  Stundensatz × Wochenstunden
+                </strong>{" "}
+                — z.B. Teilzeit
+              </li>
+              <li>
+                <strong className="text-foreground">Provision</strong> — % vom
+                eigenen ready2order-Umsatz (freie Dienstnehmer)
+              </li>
+            </ul>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="monthly_salary">Monatslohn brutto (€)</Label>
@@ -129,6 +146,23 @@ export function StaffForm({
             />
           </div>
           <div className="flex flex-col gap-1.5">
+            <Label htmlFor="commission_pct">
+              Provision (% vom eigenen Umsatz)
+            </Label>
+            <Input
+              id="commission_pct"
+              name="commission_pct"
+              type="number"
+              step="0.1"
+              defaultValue={initial?.commission_pct?.toString() ?? ""}
+              placeholder="z.B. 8.5"
+            />
+            <p className="text-[11px] text-muted-foreground">
+              Braucht eine ready2order-Verknüpfung — sonst kein Umsatz
+              zuordenbar.
+            </p>
+          </div>
+          <div className="md:col-span-2 flex flex-col gap-1.5">
             <Label htmlFor="employer_cost_factor">
               Lohnnebenkosten-Faktor
             </Label>
@@ -140,7 +174,8 @@ export function StaffForm({
               defaultValue={initial?.employer_cost_factor?.toString() ?? "1.30"}
             />
             <p className="text-[11px] text-muted-foreground">
-              1.30 = 30% Aufschlag (Sozialversicherung etc.)
+              1.30 = 30% Aufschlag (Sozialversicherung etc.) — gilt für alle
+              Modelle.
             </p>
           </div>
         </CardContent>

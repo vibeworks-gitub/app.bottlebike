@@ -32,20 +32,31 @@ function payload(formData: FormData) {
     return { error: "Eintrittsdatum ist erforderlich." } as const;
   const monthly_salary = num(formData.get("monthly_salary"));
   const hourly_rate = num(formData.get("hourly_rate"));
-  if (monthly_salary == null && hourly_rate == null)
+  const commission_pct = num(formData.get("commission_pct"));
+  const r2o_user_id = int(formData.get("r2o_user_id"));
+
+  if (monthly_salary == null && hourly_rate == null && commission_pct == null)
     return {
-      error: "Bitte Monatslohn ODER Stundensatz eintragen.",
+      error:
+        "Bitte Monatslohn ODER Stundensatz ODER Provision % eintragen.",
+    } as const;
+
+  if (commission_pct != null && r2o_user_id == null)
+    return {
+      error:
+        "Provision braucht eine ready2order-Verknüpfung — sonst kann der Umsatz nicht zugeordnet werden.",
     } as const;
 
   return {
     ok: true as const,
     data: {
       display_name,
-      r2o_user_id: int(formData.get("r2o_user_id")),
+      r2o_user_id,
       role: str(formData.get("role")),
       monthly_salary,
       hourly_rate,
       hours_per_week: num(formData.get("hours_per_week")),
+      commission_pct,
       employer_cost_factor:
         num(formData.get("employer_cost_factor")) ?? 1.3,
       start_date,

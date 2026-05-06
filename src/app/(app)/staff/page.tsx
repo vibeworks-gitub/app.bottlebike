@@ -153,17 +153,38 @@ export default async function StaffPage() {
                     {s.role ?? "—"}
                   </TableCell>
                   <TableCell className="text-xs">
-                    {s.monthly_salary != null
-                      ? `${formatEUR(s.monthly_salary)} / Monat`
-                      : s.hourly_rate != null && s.hours_per_week != null
-                        ? `${formatEUR(s.hourly_rate)}/h × ${s.hours_per_week}h/W`
+                    <div className="flex flex-col gap-0.5">
+                      {s.monthly_salary != null && (
+                        <span>{formatEUR(s.monthly_salary)} / Monat</span>
+                      )}
+                      {s.hourly_rate != null && s.hours_per_week != null && (
+                        <span>
+                          {formatEUR(s.hourly_rate)}/h × {s.hours_per_week}h/W
+                        </span>
+                      )}
+                      {s.commission_pct != null && (
+                        <span style={{ color: "var(--brand)" }}>
+                          {s.commission_pct}% Provision
+                        </span>
+                      )}
+                      {s.monthly_salary == null &&
+                        s.hourly_rate == null &&
+                        s.commission_pct == null && <span>—</span>}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {staffCostMonthly(s) > 0
+                      ? formatEUR(staffCostMonthly(s))
+                      : s.commission_pct != null
+                        ? "umsatzabhängig"
                         : "—"}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatEUR(staffCostMonthly(s))}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatEUR(staffCostDaily(s))}
+                    {staffCostMonthly(s) > 0
+                      ? formatEUR(staffCostDaily(s))
+                      : s.commission_pct != null
+                        ? "umsatzabhängig"
+                        : "—"}
                   </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {s.r2o_user_id != null

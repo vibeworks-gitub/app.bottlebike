@@ -122,6 +122,7 @@ export type StaffCost = {
   monthly_salary: number | null;
   hourly_rate: number | null;
   hours_per_week: number | null;
+  commission_pct: number | null;
   employer_cost_factor: number | null;
   start_date: string;
   end_date: string | null;
