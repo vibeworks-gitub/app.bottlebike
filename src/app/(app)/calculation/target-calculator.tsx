@@ -31,8 +31,6 @@ export function TargetCalculator({
 }) {
   // --- Inputs ---
   const [profitTarget, setProfitTarget] = useState("0");
-  const [provisionPerDay, setProvisionPerDay] = useState("0");
-  const [fixSalary, setFixSalary] = useState("0");
   const [marginPct, setMarginPct] = useState(
     currentMarginPct > 0 ? currentMarginPct.toFixed(0) : "50",
   );
@@ -51,8 +49,6 @@ export function TargetCalculator({
   };
 
   const profit = num(profitTarget);
-  const provDay = num(provisionPerDay);
-  const fixSal = num(fixSalary);
   const margin = num(marginPct);
   const days = Math.max(1, num(workdays));
   const bon = num(avgInvoice);
@@ -64,9 +60,7 @@ export function TargetCalculator({
     Math.max(staffCommissionEffectivePct, 0),
     100,
   ); // %
-  const monthlyProvision = provDay * days; // manueller Extra-Bonus pro Tag
-  const fixedToCover =
-    monthlyFixedCosts + monthlyStaffFixed + monthlyProvision + fixSal + profit;
+  const fixedToCover = monthlyFixedCosts + monthlyStaffFixed + profit;
 
   // Effektive Marge nach Wareneinsatz und nach Provisions-Abzug:
   //   Umsatz × (margin% − commission%) = Fix-Overhead + Ziel
@@ -133,27 +127,11 @@ export function TargetCalculator({
           </p>
         )}
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <FormField label="Provision pro Tag (€)" hint="z.B. 150 € pro Schicht">
-            <Input
-              type="number"
-              step="10"
-              value={provisionPerDay}
-              onChange={(e) => setProvisionPerDay(e.target.value)}
-            />
-          </FormField>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField
-            label="Fixgehalt zusätzlich / Monat (€)"
-            hint="optional, on top der Personal-Stammdaten"
+            label="Ziel-Gewinn / Monat (€)"
+            hint="0 = Break-Even (gerade kostendeckend)"
           >
-            <Input
-              type="number"
-              step="50"
-              value={fixSalary}
-              onChange={(e) => setFixSalary(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Ziel-Gewinn / Monat (€)" hint="0 = Break-Even">
             <Input
               type="number"
               step="50"
@@ -216,21 +194,18 @@ export function TargetCalculator({
           Monatliche Aufwände + Ziel
         </h3>
         <CostRow label="Fixkosten" value={formatEUR(monthlyFixedCosts)} />
-        <CostRow
-          label="Personal Fix-Anteil (aus Stammdaten)"
-          value={formatEUR(monthlyStaffFixed)}
-        />
+        {monthlyStaffFixed > 0 && (
+          <CostRow
+            label="Personal Fix-Anteil (aus Stammdaten)"
+            value={formatEUR(monthlyStaffFixed)}
+          />
+        )}
         {commissionRate > 0 && (
           <CostRow
             label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK auf erzielten Umsatz)`}
             value={formatEUR(monthlyCommissionCost)}
           />
         )}
-        <CostRow
-          label={`Extra-Provision (${formatEUR(provDay)} × ${days} Tage)`}
-          value={formatEUR(monthlyProvision)}
-        />
-        <CostRow label="Fixgehalt zusätzlich" value={formatEUR(fixSal)} />
         <CostRow label="Ziel-Gewinn" value={formatEUR(profit)} />
         <CostRow
           label="= Aufbringbar / Monat (Gesamt)"
