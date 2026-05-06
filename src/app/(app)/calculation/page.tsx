@@ -2,6 +2,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { calculateForPeriod, periodFor } from "@/lib/calculation";
 import { formatEUR, formatPercent } from "@/lib/format";
+import { fixedCostMonthly, staffCostMonthly } from "@/lib/cost-math";
+import { TargetCalculator, type ProductOption } from "./target-calculator";
+import type { FixedCost, StaffCost } from "@/lib/types/database";
 
 const PRESETS = [
   { value: "today", label: "Heute" },
@@ -12,14 +15,22 @@ const PRESETS = [
 
 type Preset = (typeof PRESETS)[number]["value"];
 
+const VIEWS = [
+  { value: "ist", label: "Ist-Auswertung" },
+  { value: "ziel", label: "Ziel-Rechner" },
+] as const;
+type View = (typeof VIEWS)[number]["value"];
+
 export default async function CalculationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; view?: string }>;
 }) {
-  const { period: rawPeriod } = await searchParams;
+  const { period: rawPeriod, view: rawView } = await searchParams;
   const preset: Preset = (PRESETS.find((p) => p.value === rawPeriod)?.value ??
     "month") as Preset;
+  const view: View = (VIEWS.find((v) => v.value === rawView)?.value ??
+    "ist") as View;
 
   const supabase = await createClient();
   const {
@@ -41,6 +52,84 @@ export default async function CalculationPage({
     period,
     integration?.accounting_start_date ?? null,
   );
+
+  // Daten für den Ziel-Rechner laden (auch wenn Tab gerade Ist ist — billig)
+  const [
+    { data: fixedCosts },
+    { data: staffCosts },
+    { data: productExtras },
+    { data: r2oProducts },
+  ] = await Promise.all([
+    supabase
+      .from("bb_fixed_costs")
+      .select("amount, frequency, active, end_date")
+      .eq("owner_id", user!.id)
+      .eq("active", true)
+      .returns<Pick<FixedCost, "amount" | "frequency" | "active" | "end_date">[]>(),
+    supabase
+      .from("bb_staff_costs")
+      .select(
+        "monthly_salary, hourly_rate, hours_per_week, employer_cost_factor, active, end_date",
+      )
+      .eq("owner_id", user!.id)
+      .eq("active", true)
+      .returns<
+        Pick<
+          StaffCost,
+          | "monthly_salary"
+          | "hourly_rate"
+          | "hours_per_week"
+          | "employer_cost_factor"
+          | "active"
+          | "end_date"
+        >[]
+      >(),
+    supabase
+      .from("bb_product_extras")
+      .select("r2o_product_id, cost_price")
+      .eq("owner_id", user!.id)
+      .not("cost_price", "is", null)
+      .returns<{ r2o_product_id: number; cost_price: number }[]>(),
+    supabase
+      .from("r2o_products")
+      .select("product_id, product_name, product_price")
+      .eq("owner_id", user!.id)
+      .eq("product_active", true)
+      .range(0, 49_999)
+      .returns<
+        {
+          product_id: number;
+          product_name: string | null;
+          product_price: number | null;
+        }[]
+      >(),
+  ]);
+
+  const monthlyFixedCosts = (fixedCosts ?? []).reduce(
+    (sum, c) => sum + fixedCostMonthly(c),
+    0,
+  );
+  const monthlyStaffFixed = (staffCosts ?? []).reduce(
+    (sum, s) => sum + staffCostMonthly(s),
+    0,
+  );
+
+  const productById = new Map(
+    (r2oProducts ?? []).map((p) => [p.product_id, p]),
+  );
+  const productOptions: ProductOption[] = (productExtras ?? [])
+    .map((e): ProductOption | null => {
+      const p = productById.get(e.r2o_product_id);
+      if (!p || !p.product_price || !p.product_name || e.cost_price == null)
+        return null;
+      return {
+        product_id: e.r2o_product_id,
+        name: p.product_name,
+        selling_price: Number(p.product_price),
+        cost_price: Number(e.cost_price),
+      };
+    })
+    .filter((o): o is ProductOption => o != null && o.selling_price > 0);
 
   const margin = r.revenue > 0 ? r.grossProfit / r.revenue : 0;
   const profitMargin = r.revenue > 0 ? r.profit / r.revenue : 0;
@@ -80,6 +169,84 @@ export default async function CalculationPage({
         )}
       </header>
 
+      {/* View-Switch: Ist vs Ziel */}
+      <div className="inline-flex w-fit rounded-lg border border-border bg-card p-1">
+        {VIEWS.map((v) => (
+          <Link
+            key={v.value}
+            href={`?view=${v.value}${preset !== "month" ? `&period=${preset}` : ""}`}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+              view === v.value
+                ? "shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            style={
+              view === v.value
+                ? {
+                    backgroundColor: "var(--brand)",
+                    color: "var(--primary-foreground)",
+                  }
+                : undefined
+            }
+          >
+            {v.label}
+          </Link>
+        ))}
+      </div>
+
+      {view === "ziel" ? (
+        <TargetCalculator
+          monthlyFixedCosts={monthlyFixedCosts}
+          monthlyStaffFixed={monthlyStaffFixed}
+          currentMarginPct={margin * 100}
+          currentAvgInvoice={avgInvoice}
+          products={productOptions}
+        />
+      ) : (
+        <IstView
+          period={preset}
+          r={r}
+          integration={integration}
+          margin={margin}
+          profitMargin={profitMargin}
+          avgInvoice={avgInvoice}
+          breakEvenSales={breakEvenSales}
+          cogsCoverage={cogsCoverage}
+          maxWeekday={maxWeekday}
+          maxHour={maxHour}
+        />
+      )}
+    </div>
+  );
+}
+
+type IstViewProps = {
+  period: Preset;
+  r: Awaited<ReturnType<typeof calculateForPeriod>>;
+  integration: { accounting_start_date: string | null } | null;
+  margin: number;
+  profitMargin: number;
+  avgInvoice: number;
+  breakEvenSales: number | null;
+  cogsCoverage: number;
+  maxWeekday: number;
+  maxHour: number;
+};
+
+function IstView({
+  period: preset,
+  r,
+  integration,
+  margin,
+  profitMargin,
+  avgInvoice,
+  breakEvenSales,
+  cogsCoverage,
+  maxWeekday,
+  maxHour,
+}: IstViewProps) {
+  return (
+    <>
       {(r.invoiceCount === 0 || r.revenue === 0) && (
         <p className="text-xs text-muted-foreground">
           {r.invoiceCount === 0
@@ -341,7 +508,7 @@ export default async function CalculationPage({
           </Card>
         </section>
       )}
-    </div>
+    </>
   );
 }
 
