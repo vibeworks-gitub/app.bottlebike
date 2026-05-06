@@ -69,7 +69,47 @@ export default async function CalculationPage({
           ergibt deinen Gewinn. Plus Wochentag- und Stunden-Statistik damit du
           siehst wann am meisten geht.
         </p>
+        {integration?.accounting_start_date && (
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground">
+            <span>Stichtag:</span>
+            <span className="font-medium text-foreground">
+              ab {new Date(integration.accounting_start_date).toLocaleDateString("de-DE")}
+            </span>
+            <span>· Daten davor (anderes Projekt) werden ignoriert</span>
+          </p>
+        )}
       </header>
+
+      {(r.invoiceCount === 0 || r.revenue === 0) && (
+        <div className="rounded-xl border border-dashed border-border bg-card/50 p-8 text-center">
+          {r.invoiceCount === 0 ? (
+            <>
+              <p className="font-medium">
+                Noch keine Belege im gewählten Zeitraum
+                {integration?.accounting_start_date
+                  ? ` (ab ${new Date(integration.accounting_start_date).toLocaleDateString("de-DE")})`
+                  : ""}
+                .
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Sobald über die ready2order-Kasse verkauft wird, fließen die
+                Belege innerhalb von 2 Min automatisch hier ein.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">
+                {r.invoiceCount} Belege im Zeitraum, alle mit 0,00 € Umsatz.
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Wahrscheinlich nur RKSV-Pflichtbelege der Kasse (monatliche
+                Null-Belege fürs Finanzamt) — kein echter Verkauf. Sobald
+                über die Kasse verkauft wird, erscheinen die Beträge hier.
+              </p>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Period-Selector */}
       <nav className="flex flex-wrap gap-1 border-b border-border">
