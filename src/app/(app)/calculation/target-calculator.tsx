@@ -12,6 +12,8 @@ export type ProductOption = {
   cost_price: number;
 };
 
+type OutPeriod = "day" | "week" | "month";
+
 export function TargetCalculator({
   monthlyFixedCosts,
   monthlyStaffFixed,
@@ -21,12 +23,14 @@ export function TargetCalculator({
 }: {
   monthlyFixedCosts: number;
   monthlyStaffFixed: number;
-  currentMarginPct: number; // 0-100
+  currentMarginPct: number;
   currentAvgInvoice: number;
   products: ProductOption[];
 }) {
+  // --- Inputs ---
   const [profitTarget, setProfitTarget] = useState("0");
-  const [extraBonus, setExtraBonus] = useState("0");
+  const [provisionPerDay, setProvisionPerDay] = useState("0");
+  const [fixSalary, setFixSalary] = useState("0");
   const [marginPct, setMarginPct] = useState(
     currentMarginPct > 0 ? currentMarginPct.toFixed(0) : "50",
   );
@@ -34,6 +38,7 @@ export function TargetCalculator({
   const [avgInvoice, setAvgInvoice] = useState(
     currentAvgInvoice > 0 ? currentAvgInvoice.toFixed(2) : "10.00",
   );
+  const [outPeriod, setOutPeriod] = useState<OutPeriod>("day");
   const [selectedProduct, setSelectedProduct] = useState<string>(
     products[0]?.product_id ? String(products[0].product_id) : "",
   );
@@ -44,36 +49,52 @@ export function TargetCalculator({
   };
 
   const profit = num(profitTarget);
-  const bonus = num(extraBonus);
+  const provDay = num(provisionPerDay);
+  const fixSal = num(fixSalary);
   const margin = num(marginPct);
   const days = Math.max(1, num(workdays));
   const bon = num(avgInvoice);
 
-  // Was es uns kostet pro Monat (gross-up: alle Kosten + Ziel-Gewinn)
-  const totalNeededProfit = profit + bonus;
+  // --- Berechnung (Monatsbasis) ---
+  const monthlyProvision = provDay * days; // Provision/Tag × Arbeitstage
   const totalMonthlyCovered =
-    monthlyFixedCosts + monthlyStaffFixed + totalNeededProfit;
+    monthlyFixedCosts +
+    monthlyStaffFixed +
+    monthlyProvision +
+    fixSal +
+    profit;
 
-  // Welcher Bruttoumsatz erzielt diesen Rohertrag bei Marge X%?
   const requiredMonthlyRevenue =
     margin > 0 ? totalMonthlyCovered / (margin / 100) : 0;
   const requiredDailyRevenue = requiredMonthlyRevenue / days;
-  const invoicesPerDay = bon > 0 ? requiredDailyRevenue / bon : 0;
-  const invoicesPerMonth = invoicesPerDay * days;
+  const requiredWeeklyRevenue = (requiredMonthlyRevenue * 12) / 52;
 
-  // Pro-Produkt
+  // Output je nach Period
+  const outRevenue =
+    outPeriod === "day"
+      ? requiredDailyRevenue
+      : outPeriod === "week"
+        ? requiredWeeklyRevenue
+        : requiredMonthlyRevenue;
+  const outInvoices = bon > 0 ? Math.ceil(outRevenue / bon) : 0;
+
+  // Pro Produkt
   const product = products.find(
     (p) => String(p.product_id) === selectedProduct,
   );
   const productMargin = product
     ? (product.selling_price - product.cost_price) / product.selling_price
     : null;
-  const unitsPerMonth =
+  const outUnits =
     product && product.selling_price > 0
-      ? requiredMonthlyRevenue / product.selling_price
+      ? Math.ceil(outRevenue / product.selling_price)
       : null;
-  const unitsPerDay =
-    unitsPerMonth != null ? unitsPerMonth / days : null;
+
+  const periodLabel: Record<OutPeriod, string> = {
+    day: "/ Tag",
+    week: "/ Woche",
+    month: "/ Monat",
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -83,10 +104,30 @@ export function TargetCalculator({
           Ziel-Vorgaben
         </h3>
         <p className="mb-4 text-xs text-muted-foreground">
-          Trag ein was du im Monat machen willst — die Rechnung passt sich
-          live an.
+          Zusätzliche Personalkosten + dein Ziel-Gewinn. Alles wird live
+          gegen die bestehenden Fixkosten + Personal-Fix verrechnet.
         </p>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <FormField label="Provision pro Tag (€)" hint="z.B. 150 € pro Schicht">
+            <Input
+              type="number"
+              step="10"
+              value={provisionPerDay}
+              onChange={(e) => setProvisionPerDay(e.target.value)}
+            />
+          </FormField>
+          <FormField
+            label="Fixgehalt zusätzlich / Monat (€)"
+            hint="optional, on top der Personal-Stammdaten"
+          >
+            <Input
+              type="number"
+              step="50"
+              value={fixSalary}
+              onChange={(e) => setFixSalary(e.target.value)}
+            />
+          </FormField>
           <FormField label="Ziel-Gewinn / Monat (€)" hint="0 = Break-Even">
             <Input
               type="number"
@@ -95,69 +136,73 @@ export function TargetCalculator({
               onChange={(e) => setProfitTarget(e.target.value)}
             />
           </FormField>
-          <FormField label="Extra-Bonus Mitarbeiter / Monat (€)">
-            <Input
-              type="number"
-              step="50"
-              value={extraBonus}
-              onChange={(e) => setExtraBonus(e.target.value)}
-            />
-          </FormField>
-          <FormField
-            label="Marge auf Wareneinsatz (%)"
-            hint={
-              currentMarginPct > 0
-                ? `aktuell: ${formatPercent(currentMarginPct)}`
-                : "Schätzung — du kannst überschreiben"
-            }
-          >
-            <Input
-              type="number"
-              step="1"
-              value={marginPct}
-              onChange={(e) => setMarginPct(e.target.value)}
-            />
-          </FormField>
-          <FormField label="Arbeitstage / Monat" hint="z.B. 22 Werktage">
-            <Input
-              type="number"
-              step="1"
-              value={workdays}
-              onChange={(e) => setWorkdays(e.target.value)}
-            />
-          </FormField>
-          <FormField
-            label="Ø Bonsumme (€)"
-            hint={
-              currentAvgInvoice > 0
-                ? `aktuell: ${formatEUR(currentAvgInvoice)}`
-                : undefined
-            }
-          >
-            <Input
-              type="number"
-              step="0.5"
-              value={avgInvoice}
-              onChange={(e) => setAvgInvoice(e.target.value)}
-            />
-          </FormField>
         </div>
+
+        <details className="mt-4">
+          <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+            Weitere Annahmen ändern (Marge, Arbeitstage, Ø-Bon)
+          </summary>
+          <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <FormField
+              label="Marge auf Wareneinsatz (%)"
+              hint={
+                currentMarginPct > 0
+                  ? `aktuell: ${formatPercent(currentMarginPct)}`
+                  : undefined
+              }
+            >
+              <Input
+                type="number"
+                step="1"
+                value={marginPct}
+                onChange={(e) => setMarginPct(e.target.value)}
+              />
+            </FormField>
+            <FormField label="Arbeitstage / Monat" hint="z.B. 22 Werktage">
+              <Input
+                type="number"
+                step="1"
+                value={workdays}
+                onChange={(e) => setWorkdays(e.target.value)}
+              />
+            </FormField>
+            <FormField
+              label="Ø Bonsumme (€)"
+              hint={
+                currentAvgInvoice > 0
+                  ? `aktuell: ${formatEUR(currentAvgInvoice)}`
+                  : undefined
+              }
+            >
+              <Input
+                type="number"
+                step="0.5"
+                value={avgInvoice}
+                onChange={(e) => setAvgInvoice(e.target.value)}
+              />
+            </FormField>
+          </div>
+        </details>
       </div>
 
-      {/* Was es kostet */}
+      {/* Was es kostet (immer auf Monat) */}
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="font-heading text-base font-semibold mb-3">
-          Was du im Monat aufbringen musst
+          Monatliche Aufwände + Ziel
         </h3>
         <CostRow label="Fixkosten" value={formatEUR(monthlyFixedCosts)} />
         <CostRow
-          label="Personal Fix-Anteil"
+          label="Personal Fix-Anteil (aus Stammdaten)"
           value={formatEUR(monthlyStaffFixed)}
         />
-        <CostRow label="Extra-Bonus" value={formatEUR(bonus)} />
+        <CostRow
+          label={`Provision (${formatEUR(provDay)} × ${days} Tage)`}
+          value={formatEUR(monthlyProvision)}
+        />
+        <CostRow label="Fixgehalt zusätzlich" value={formatEUR(fixSal)} />
         <CostRow label="Ziel-Gewinn" value={formatEUR(profit)} />
         <CostRow
-          label="= Aufbringbar (Rohertrag nach Wareneinsatz)"
+          label="= Aufbringbar / Monat (Rohertrag)"
           value={formatEUR(totalMonthlyCovered)}
           bold
         />
@@ -168,35 +213,52 @@ export function TargetCalculator({
         className="rounded-xl border bg-card p-5"
         style={{ borderColor: "var(--brand)" }}
       >
-        <h3 className="font-heading text-base font-semibold mb-3">
-          Was du dafür verkaufen musst
-        </h3>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="font-heading text-base font-semibold">
+            Was du dafür verkaufen musst
+          </h3>
+          <div className="inline-flex rounded-md border border-border bg-background p-0.5">
+            {(
+              [
+                { v: "day", label: "Tag" },
+                { v: "week", label: "Woche" },
+                { v: "month", label: "Monat" },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => setOutPeriod(opt.v)}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  outPeriod === opt.v
+                    ? "shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+                style={
+                  outPeriod === opt.v
+                    ? {
+                        backgroundColor: "var(--brand)",
+                        color: "var(--primary-foreground)",
+                      }
+                    : undefined
+                }
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <BigStat
-            label="Umsatz / Monat"
-            value={formatEUR(requiredMonthlyRevenue)}
+            label={`Umsatz brutto ${periodLabel[outPeriod]}`}
+            value={formatEUR(outRevenue)}
             accent
           />
           <BigStat
-            label="Umsatz / Tag"
-            value={formatEUR(requiredDailyRevenue)}
-          />
-          <BigStat
-            label="Belege / Tag"
-            value={
-              invoicesPerDay > 0
-                ? Math.ceil(invoicesPerDay).toLocaleString("de-DE")
-                : "—"
-            }
+            label={`Belege ${periodLabel[outPeriod]}`}
+            value={outInvoices > 0 ? outInvoices.toLocaleString("de-DE") : "—"}
             hint={`bei Ø ${formatEUR(bon)} pro Beleg`}
-          />
-          <BigStat
-            label="Belege / Monat"
-            value={
-              invoicesPerMonth > 0
-                ? Math.ceil(invoicesPerMonth).toLocaleString("de-DE")
-                : "—"
-            }
           />
         </div>
       </div>
@@ -205,7 +267,7 @@ export function TargetCalculator({
       <div className="rounded-xl border border-border bg-card p-5">
         <h3 className="font-heading text-base font-semibold mb-1">
           Konkret: wie viele {product ? `„${product.name}"` : "von einem Produkt"}{" "}
-          müssen verkauft werden?
+          {periodLabel[outPeriod]}
         </h3>
         <p className="mb-4 text-xs text-muted-foreground">
           Annahme: du verkaufst <em>nur</em> dieses eine Produkt.
@@ -231,7 +293,7 @@ export function TargetCalculator({
                 id="product-pick"
                 value={selectedProduct}
                 onChange={(e) => setSelectedProduct(e.target.value)}
-                className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none max-w-md"
+                className="h-9 max-w-xl rounded-md border border-input bg-transparent px-3 text-sm outline-none"
               >
                 {products.map((p) => (
                   <option key={p.product_id} value={p.product_id}>
@@ -239,26 +301,18 @@ export function TargetCalculator({
                     {formatEUR(p.cost_price)} (
                     {formatPercent(
                       ((p.selling_price - p.cost_price) / p.selling_price) * 100,
-                    )}{" "}
-                    Marge)
+                    )}
+                    )
                   </option>
                 ))}
               </select>
             </div>
-            {product && unitsPerMonth != null && (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {product && outUnits != null && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <BigStat
-                  label="Stück / Monat"
-                  value={Math.ceil(unitsPerMonth).toLocaleString("de-DE")}
+                  label={`Stück ${periodLabel[outPeriod]}`}
+                  value={outUnits.toLocaleString("de-DE")}
                   accent
-                />
-                <BigStat
-                  label="Stück / Tag"
-                  value={
-                    unitsPerDay != null
-                      ? Math.ceil(unitsPerDay).toLocaleString("de-DE")
-                      : "—"
-                  }
                 />
                 <BigStat
                   label="Marge dieses Produkts"
@@ -267,7 +321,11 @@ export function TargetCalculator({
                       ? formatPercent(productMargin * 100)
                       : "—"
                   }
-                  hint="Hinweis: dein Ziel-Marge oben kann abweichen"
+                  hint={
+                    productMargin != null && Math.abs(productMargin * 100 - margin) > 5
+                      ? `weicht von Annahme (${margin}%) ab`
+                      : undefined
+                  }
                 />
               </div>
             )}
@@ -358,3 +416,6 @@ function BigStat({
     </div>
   );
 }
+
+const _useMemo = useMemo; // keep import friendly when memo is removed
+void _useMemo;
