@@ -10,6 +10,12 @@ const NAV: Array<{ href: string; label: string; badge?: string; group?: string }
   { href: "/dashboard", label: "Übersicht" },
   { href: "/products", label: "Produkte" },
   { href: "/suppliers", label: "Lieferanten" },
+  { href: "/inventory", label: "Lager", group: "Inventar" },
+  { href: "/inventory/purchases", label: "Wareneingang", group: "Inventar" },
+  { href: "/inventory/transfers/new", label: "Bike beladen", group: "Inventar" },
+  { href: "/inventory/locations", label: "Standorte", group: "Inventar" },
+  { href: "/inventory/cash-registers", label: "Kassen", group: "Inventar" },
+  { href: "/inventory/thresholds", label: "Mindestbestand", group: "Inventar" },
   { href: "/fixed-costs", label: "Fixkosten", group: "Kalkulation" },
   { href: "/staff", label: "Personal", group: "Kalkulation" },
   { href: "/calculation", label: "Auswertung", group: "Kalkulation" },
@@ -52,20 +58,32 @@ export default async function AppLayout({
           <Logo size={88} />
         </Link>
 
-        <nav className="flex flex-1 flex-col gap-0.5 p-3 text-sm">
+        <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto p-3 text-sm">
           {NAV.map((item, idx) => {
+            const prev = NAV[idx - 1];
+            const groupChanged =
+              idx > 0 && (prev?.group ?? null) !== (item.group ?? null);
             const showGroup =
-              item.group && (idx === 0 || NAV[idx - 1]?.group !== item.group);
+              item.group && (idx === 0 || prev?.group !== item.group);
             return (
               <span key={item.href} className="contents">
+                {groupChanged && (
+                  <span
+                    aria-hidden
+                    className="mx-1 mb-3 mt-4 h-[2px] rounded-full bg-sidebar-border/80"
+                  />
+                )}
                 {showGroup && (
-                  <span className="mt-3 px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  <span
+                    className="mb-1.5 px-3 text-[11px] font-bold uppercase tracking-[0.12em]"
+                    style={{ color: "var(--brand)" }}
+                  >
                     {item.group}
                   </span>
                 )}
                 <Link
                   href={item.href}
-                  className="group flex items-center justify-between rounded-md px-3 py-2 font-medium text-sidebar-foreground/75 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  className="group flex items-center justify-between rounded-md px-3 py-1.5 text-sidebar-foreground/80 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
                 >
                   <span>{item.label}</span>
                   {item.badge && (

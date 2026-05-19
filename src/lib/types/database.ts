@@ -148,6 +148,139 @@ export type Integration = {
   updated_at: string;
 };
 
+export type LocationType = "warehouse" | "bike";
+
+export type Location = {
+  id: string;
+  owner_id: string;
+  name: string;
+  type: LocationType;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CashRegister = {
+  id: string;
+  owner_id: string;
+  name: string;
+  r2o_cash_register_id: string | null;
+  active: boolean;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CashRegisterStatus = {
+  id: string;
+  owner_id: string;
+  name: string;
+  r2o_cash_register_id: string | null;
+  active: boolean;
+  current_assignment_id: string | null;
+  current_location_id: string | null;
+  current_assignment_since: string | null;
+  current_location_name: string | null;
+  current_location_type: LocationType | null;
+  is_unassigned: boolean;
+};
+
+export type RegisterAssignment = {
+  id: string;
+  owner_id: string;
+  cash_register_id: string;
+  location_id: string;
+  valid_from: string;
+  valid_to: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type Purchase = {
+  id: string;
+  owner_id: string;
+  supplier_id: string | null;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  destination_location_id: string;
+  total_net: number | null;
+  total_gross: number | null;
+  notes: string | null;
+  received_at: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PurchaseItem = {
+  id: string;
+  owner_id: string;
+  purchase_id: string;
+  r2o_product_id: number;
+  quantity: number;
+  unit_cost_net: number | null;
+  expiry_date: string | null;
+  notes: string | null;
+  sort_order: number;
+  created_at: string;
+};
+
+export type StockMovementType =
+  | "purchase"
+  | "transfer"
+  | "sale"
+  | "adjustment"
+  | "reversal";
+
+export type StockMovement = {
+  id: string;
+  owner_id: string;
+  r2o_product_id: number;
+  from_location_id: string | null;
+  to_location_id: string | null;
+  quantity: number;
+  type: StockMovementType;
+  ref_table: string | null;
+  ref_id: string | null;
+  occurred_at: string;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type StockByLocation = {
+  owner_id: string;
+  r2o_product_id: number;
+  location_id: string;
+  quantity: number;
+};
+
+export type StockThreshold = {
+  owner_id: string;
+  r2o_product_id: number;
+  location_id: string;
+  min_quantity: number;
+  updated_at: string;
+};
+
+export type UnbookedSaleReason =
+  | "no_register_id_in_raw"
+  | "cash_register_unknown"
+  | "no_assignment_at_timestamp";
+
+export type UnbookedSale = {
+  owner_id: string;
+  invoice_id: number;
+  invoice_number_full: string | null;
+  invoice_timestamp: string | null;
+  r2o_cash_register_id: string | null;
+  cash_register_id: string | null;
+  cash_register_name: string | null;
+  reason: UnbookedSaleReason;
+};
+
 export type QuoteItem = {
   id: string;
   quote_id: string;
