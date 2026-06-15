@@ -12,11 +12,13 @@ export function ExtrasForm({
   initial,
   suppliers,
   sellingPrice,
+  allProducts,
 }: {
   r2oProductId: number;
   initial: ProductExtra | null;
   suppliers: Pick<Supplier, "id" | "name">[];
   sellingPrice: number | null;
+  allProducts: { product_id: number; product_name: string | null }[];
 }) {
   const action = saveProductExtras.bind(null, r2oProductId);
   const [state, formAction, pending] = useActionState<
@@ -153,6 +155,44 @@ export function ExtrasForm({
             step="0.01"
             defaultValue={initial?.last_purchase_price?.toString() ?? ""}
           />
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="shelf_life_days">Haltbarkeit (Tage ab Kauf)</Label>
+          <Input
+            id="shelf_life_days"
+            name="shelf_life_days"
+            type="number"
+            step="1"
+            min="0"
+            defaultValue={initial?.shelf_life_days?.toString() ?? ""}
+            placeholder="z.B. 365"
+          />
+          <p className="text-xs text-muted-foreground">
+            Wird beim Wareneingang als MHD vorbelegt (Kaufdatum + Tage).
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5" />
+
+        <div className="sm:col-span-2 flex flex-col gap-1.5">
+          <Label htmlFor="deposit_product_id">Pfand-Artikel</Label>
+          <select
+            id="deposit_product_id"
+            name="deposit_product_id"
+            defaultValue={initial?.deposit_product_id?.toString() ?? ""}
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
+          >
+            <option value="">— kein Pfand —</option>
+            {allProducts.map((p) => (
+              <option key={p.product_id} value={p.product_id}>
+                {p.product_name ?? `#${p.product_id}`}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Wenn gesetzt, wird beim Wareneingang automatisch eine zusätzliche
+            Position für den Pfand-Artikel in gleicher Menge hinzugefügt.
+          </p>
         </div>
 
         <div className="sm:col-span-2 flex flex-col gap-1.5">

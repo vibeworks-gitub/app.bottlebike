@@ -109,10 +109,8 @@ export async function deletePurchase(formData: FormData) {
   const id = String(formData.get("id"));
   if (!id) return;
   const supabase = await createClient();
-  // Stock-Movements zu diesem Wareneingang umkehren waere sauber, aber ON DELETE
-  // CASCADE auf items haengt nicht an movements. Vorerst nur Items+Purchase loeschen,
-  // existierende sale/transfer-Bewegungen anderer Quellen bleiben unberuehrt.
-  // TODO: Reversal-Movement bei Loeschung erzeugen.
+  // Items werden via FK-CASCADE entfernt; der BEFORE-DELETE-Trigger auf
+  // bb_purchase_items raeumt die zugehoerigen Stock-Movements gleich mit weg.
   await supabase.from("bb_purchases").delete().eq("id", id);
   revalidatePath("/inventory/purchases");
   revalidatePath("/inventory");

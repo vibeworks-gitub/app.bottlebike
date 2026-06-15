@@ -91,6 +91,8 @@ export type ProductExtra = {
   notes: string | null;
   last_purchase_date: string | null;
   last_purchase_price: number | null;
+  deposit_product_id: number | null;
+  shelf_life_days: number | null;
   created_at: string;
   updated_at: string;
 };

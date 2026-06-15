@@ -36,7 +36,13 @@ export default async function EditProductPage({
     data: { user },
   } = await supabase.auth.getUser();
 
-  const [{ data: product }, { data: extra }, { data: group }, { data: suppliers }] =
+  const [
+    { data: product },
+    { data: extra },
+    { data: group },
+    { data: suppliers },
+    { data: allProducts },
+  ] =
     await Promise.all([
       supabase
         .from("r2o_products")
@@ -63,6 +69,13 @@ export default async function EditProductPage({
         .eq("owner_id", user!.id)
         .order("name")
         .returns<Pick<Supplier, "id" | "name">[]>(),
+      supabase
+        .from("r2o_products")
+        .select("product_id, product_name")
+        .eq("owner_id", user!.id)
+        .eq("product_active", true)
+        .order("product_name", { ascending: true })
+        .returns<{ product_id: number; product_name: string | null }[]>(),
     ]);
 
   if (!product) notFound();
@@ -178,6 +191,9 @@ export default async function EditProductPage({
           initial={extra ?? null}
           suppliers={suppliers ?? []}
           sellingPrice={product.product_price ?? null}
+          allProducts={(allProducts ?? []).filter(
+            (p) => p.product_id !== product.product_id,
+          )}
         />
       </section>
     </div>

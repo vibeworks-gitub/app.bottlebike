@@ -44,6 +44,14 @@ export async function saveProductExtras(
     notes: str(formData.get("notes")),
     last_purchase_date: str(formData.get("last_purchase_date")),
     last_purchase_price: num(formData.get("last_purchase_price")),
+    deposit_product_id: (() => {
+      const v = num(formData.get("deposit_product_id"));
+      return v != null ? Math.trunc(v) : null;
+    })(),
+    shelf_life_days: (() => {
+      const v = num(formData.get("shelf_life_days"));
+      return v != null ? Math.trunc(v) : null;
+    })(),
   };
 
   const { error } = await supabase
