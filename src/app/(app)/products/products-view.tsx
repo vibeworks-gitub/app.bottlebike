@@ -101,8 +101,10 @@ export function ProductsView({
   }, [rows, q, status, group, pflege, supplier]);
 
   const stats = useMemo(() => {
-    const totalGepflegt = rows.filter((r) => r.cost_price != null).length;
-    const margins = rows
+    const active = rows.filter((r) => r.product_active);
+    const inactiveCount = rows.length - active.length;
+    const totalGepflegt = active.filter((r) => r.cost_price != null).length;
+    const margins = active
       .map(marginPct)
       .filter((m): m is number => m != null && Number.isFinite(m));
     const avgMargin =
@@ -110,7 +112,8 @@ export function ProductsView({
         ? margins.reduce((a, b) => a + b, 0) / margins.length
         : null;
     return {
-      total: rows.length,
+      total: active.length,
+      inactive: inactiveCount,
       gepflegt: totalGepflegt,
       avgMargin,
     };
@@ -119,7 +122,11 @@ export function ProductsView({
   return (
     <div className="flex flex-col gap-4">
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <Stat label="Produkte gesamt" value={String(stats.total)} />
+        <Stat
+          label="Aktive Produkte"
+          value={String(stats.total)}
+          hint={stats.inactive > 0 ? `+ ${stats.inactive} inaktiv` : undefined}
+        />
         <Stat
           label="EK gepflegt"
           value={`${stats.gepflegt} / ${stats.total}`}
@@ -325,11 +332,13 @@ export function ProductsView({
 function Stat({
   label,
   value,
+  hint,
   accent,
   warning,
 }: {
   label: string;
   value: string;
+  hint?: string;
   accent?: boolean;
   warning?: boolean;
 }) {
@@ -360,6 +369,9 @@ function Stat({
       >
         {value}
       </div>
+      {hint && (
+        <div className="text-[10px] text-muted-foreground">{hint}</div>
+      )}
     </div>
   );
 }
