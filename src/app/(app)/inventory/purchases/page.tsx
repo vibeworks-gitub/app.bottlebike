@@ -1,39 +1,96 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
-import { formatEUR } from "@/lib/format";
-import type { Location, Purchase, Supplier } from "@/lib/types/database";
-import { bookPurchase, deletePurchase } from "./actions";
-
-const fmtDate = new Intl.DateTimeFormat("de-DE", { dateStyle: "short" });
+import type {
+  Location,
+  Purchase,
+  PurchaseItem,
+  Supplier,
+} from "@/lib/types/database";
+import { PurchasesView, type PurchaseListRow } from "./purchases-view";
 
 export default async function PurchasesPage() {
   const supabase = await createClient();
-  const [{ data: purchases }, { data: suppliers }, { data: locations }] =
-    await Promise.all([
-      supabase
-        .from("bb_purchases")
-        .select("*")
-        .order("invoice_date", { ascending: false, nullsFirst: false })
-        .order("received_at", { ascending: false })
-        .limit(100)
-        .returns<Purchase[]>(),
-      supabase.from("bb_suppliers").select("id, name").returns<Pick<Supplier, "id" | "name">[]>(),
-      supabase.from("bb_locations").select("id, name").returns<Pick<Location, "id" | "name">[]>(),
-    ]);
+  const [
+    { data: purchases },
+    { data: items },
+    { data: suppliers },
+    { data: locations },
+  ] = await Promise.all([
+    supabase
+      .from("bb_purchases")
+      .select("*")
+      .order("invoice_date", { ascending: false, nullsFirst: false })
+      .order("received_at", { ascending: false })
+      .limit(100)
+      .returns<Purchase[]>(),
+    supabase
+      .from("bb_purchase_items")
+      .select("*")
+      .order("sort_order", { ascending: true })
+      .returns<PurchaseItem[]>(),
+    supabase
+      .from("bb_suppliers")
+      .select("id, name")
+      .returns<Pick<Supplier, "id" | "name">[]>(),
+    supabase
+      .from("bb_locations")
+      .select("id, name")
+      .returns<Pick<Location, "id" | "name">[]>(),
+  ]);
 
   const supById = new Map((suppliers ?? []).map((s) => [s.id, s.name]));
   const locById = new Map((locations ?? []).map((l) => [l.id, l.name]));
-  const empty = !purchases || purchases.length === 0;
+
+  // Produkt-IDs einsammeln und Namen nachladen
+  const productIds = [...new Set((items ?? []).map((i) => i.r2o_product_id))];
+  let productNameById = new Map<number, string>();
+  if (productIds.length > 0) {
+    const { data: prods } = await supabase
+      .from("r2o_products")
+      .select("product_id, product_name")
+      .in("product_id", productIds)
+      .returns<{ product_id: number; product_name: string | null }[]>();
+    productNameById = new Map(
+      (prods ?? []).map((p) => [
+        p.product_id,
+        p.product_name ?? `#${p.product_id}`,
+      ]),
+    );
+  }
+
+  // Items pro purchase_id gruppieren
+  const itemsByPurchase = new Map<string, PurchaseItem[]>();
+  for (const it of items ?? []) {
+    const arr = itemsByPurchase.get(it.purchase_id) ?? [];
+    arr.push(it);
+    itemsByPurchase.set(it.purchase_id, arr);
+  }
+
+  const rows: PurchaseListRow[] = (purchases ?? []).map((p) => ({
+    id: p.id,
+    invoice_date: p.invoice_date,
+    received_at: p.received_at,
+    status: p.status,
+    invoice_number: p.invoice_number,
+    supplier_name: p.supplier_id ? supById.get(p.supplier_id) ?? null : null,
+    destination_name: locById.get(p.destination_location_id) ?? null,
+    total_net: p.total_net,
+    total_gross: p.total_gross,
+    notes: p.notes,
+    items: (itemsByPurchase.get(p.id) ?? []).map((it) => ({
+      id: it.id,
+      r2o_product_id: it.r2o_product_id,
+      product_name:
+        productNameById.get(it.r2o_product_id) ?? `#${it.r2o_product_id}`,
+      quantity: Number(it.quantity),
+      unit_cost_net: it.unit_cost_net,
+      expiry_date: it.expiry_date,
+      notes: it.notes,
+    })),
+  }));
+
+  const empty = rows.length === 0;
 
   return (
     <div className="flex flex-col gap-8">
@@ -80,120 +137,7 @@ export default async function PurchasesPage() {
           </Link>
         </div>
       ) : (
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <Table>
-            <TableHeader>
-              <TableRow className="bg-muted/40 hover:bg-muted/40">
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Datum
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Status
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Rechnung
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Lieferant
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Ziel
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
-                  Netto
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
-                  Brutto
-                </TableHead>
-                <TableHead className="w-40" />
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {purchases.map((p) => (
-                <TableRow key={p.id}>
-                  <TableCell className="text-sm">
-                    {p.invoice_date
-                      ? fmtDate.format(new Date(p.invoice_date))
-                      : fmtDate.format(new Date(p.received_at))}
-                  </TableCell>
-                  <TableCell>
-                    {p.status === "draft" ? (
-                      <Badge
-                        variant="outline"
-                        style={{
-                          borderColor:
-                            "color-mix(in oklab, var(--brand) 35%, transparent)",
-                          color: "var(--brand)",
-                        }}
-                      >
-                        Entwurf
-                      </Badge>
-                    ) : (
-                      <Badge variant="secondary">gebucht</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {p.invoice_number ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {p.supplier_id ? supById.get(p.supplier_id) ?? "—" : "—"}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {locById.get(p.destination_location_id) ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-sm text-right tabular-nums">
-                    {formatEUR(p.total_net)}
-                  </TableCell>
-                  <TableCell className="text-sm text-right tabular-nums">
-                    {formatEUR(p.total_gross)}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
-                      {p.status === "draft" && (
-                        <>
-                          <Link
-                            href={`/inventory/purchases/${p.id}/edit`}
-                            className={buttonVariants({
-                              variant: "ghost",
-                              size: "sm",
-                            })}
-                          >
-                            Bearbeiten
-                          </Link>
-                          <form action={bookPurchase}>
-                            <input type="hidden" name="id" value={p.id} />
-                            <button
-                              type="submit"
-                              className={buttonVariants({
-                                variant: "outline",
-                                size: "sm",
-                              })}
-                            >
-                              Buchen
-                            </button>
-                          </form>
-                        </>
-                      )}
-                      <form action={deletePurchase}>
-                        <input type="hidden" name="id" value={p.id} />
-                        <button
-                          type="submit"
-                          className={buttonVariants({
-                            variant: "ghost",
-                            size: "sm",
-                          })}
-                          style={{ color: "var(--destructive)" }}
-                        >
-                          Löschen
-                        </button>
-                      </form>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
+        <PurchasesView purchases={rows} />
       )}
     </div>
   );
