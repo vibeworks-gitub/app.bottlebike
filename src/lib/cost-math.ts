@@ -29,6 +29,51 @@ export function isCommissionStaff(s: Pick<StaffCost, "commission_pct">): boolean
   return s.commission_pct != null;
 }
 
+/**
+ * Wandelt einen Preis je nach VAT-Flag in {brutto, netto} um.
+ * vatRate ist in % (z.B. 20 fuer 20%).
+ */
+export function bruttoNetto(
+  amount: number | null | undefined,
+  includesVat: boolean | null | undefined,
+  vatRate: number | null | undefined,
+): { brutto: number | null; netto: number | null } {
+  if (amount == null) return { brutto: null, netto: null };
+  const a = Number(amount);
+  if (!Number.isFinite(a)) return { brutto: null, netto: null };
+  const v = Number(vatRate ?? 0);
+  if (v <= 0) return { brutto: a, netto: a };
+  if (includesVat) {
+    return { brutto: a, netto: a / (1 + v / 100) };
+  }
+  return { brutto: a * (1 + v / 100), netto: a };
+}
+
+/**
+ * Standard-Handelsmarge auf NETTO-Basis:
+ *   Rohertrag = VK netto − EK netto
+ *   Marge %   = Rohertrag / VK netto × 100
+ * Ueberall in der App dieselbe Formel verwenden.
+ */
+export function computeMargin(input: {
+  sellPrice: number | null | undefined;
+  sellIncludesVat: boolean | null | undefined;
+  costPrice: number | null | undefined;
+  costIncludesVat: boolean | null | undefined;
+  vatRate: number | null | undefined;
+}): { marginEur: number; marginPct: number; sellNet: number; costNet: number } | null {
+  const sell = bruttoNetto(input.sellPrice, input.sellIncludesVat, input.vatRate);
+  const cost = bruttoNetto(input.costPrice, input.costIncludesVat, input.vatRate);
+  if (sell.netto == null || cost.netto == null || sell.netto <= 0) return null;
+  const marginEur = sell.netto - cost.netto;
+  return {
+    marginEur,
+    marginPct: (marginEur / sell.netto) * 100,
+    sellNet: sell.netto,
+    costNet: cost.netto,
+  };
+}
+
 // Berechnet Fix-Anteile (ohne Provision). Provision wird separat über
 // staffCommissionMonthly(s, monthlyRevenue) berechnet, weil sie vom
 // tatsächlich erzielten Umsatz abhängt.

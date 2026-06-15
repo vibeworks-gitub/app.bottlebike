@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatEUR, formatPercent } from "@/lib/format";
+import { computeMargin } from "@/lib/cost-math";
 
 export type Row = {
   product_id: number;
@@ -40,10 +41,15 @@ type Pflege = "all" | "gepflegt" | "fehlt";
 type Status = "all" | "active" | "inactive";
 
 function marginPct(row: Row): number | null {
-  if (row.product_price == null || row.cost_price == null) return null;
-  // Wir vergleichen brutto vs brutto: wenn Flags nicht matchen, ignorieren wir das hier (vereinfacht)
-  if (row.cost_price <= 0) return null;
-  return ((row.product_price - row.cost_price) / row.product_price) * 100;
+  // Einheitliche Handelsmarge auf Netto-Basis (siehe lib/cost-math).
+  const m = computeMargin({
+    sellPrice: row.product_price,
+    sellIncludesVat: row.product_price_includes_vat,
+    costPrice: row.cost_price,
+    costIncludesVat: row.cost_includes_vat,
+    vatRate: row.product_vat,
+  });
+  return m ? m.marginPct : null;
 }
 
 export function ProductsView({

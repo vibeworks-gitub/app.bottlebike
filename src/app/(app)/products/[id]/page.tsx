@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { formatEUR, formatPercent } from "@/lib/format";
+import { bruttoNetto, computeMargin } from "@/lib/cost-math";
 import type { ProductExtra, Supplier } from "@/lib/types/database";
 import { ExtrasForm } from "./extras-form";
 
@@ -91,11 +92,84 @@ export default async function EditProductPage({
           ?.productgroup_name ?? null
       : null;
 
-  // Marge wenn EK gesetzt
-  const margin =
-    extra?.cost_price != null && product.product_price && product.product_price > 0
-      ? ((product.product_price - extra.cost_price) / product.product_price) * 100
+  // Einheitliche Brutto/Netto + Marge ueber Shared-Helper
+  const vat = product.product_vat != null ? Number(product.product_vat) : 0;
+  const sell = bruttoNetto(
+    product.product_price,
+    product.product_price_includes_vat,
+    vat,
+  );
+  const cost = bruttoNetto(extra?.cost_price, extra?.cost_includes_vat, vat);
+  const m = computeMargin({
+    sellPrice: product.product_price,
+    sellIncludesVat: product.product_price_includes_vat,
+    costPrice: extra?.cost_price,
+    costIncludesVat: extra?.cost_includes_vat,
+    vatRate: vat,
+  });
+  const marginEur = m?.marginEur ?? null;
+  const margin = m?.marginPct ?? null;
+
+  // Pfand-Daten laden, falls verknüpft
+  let depositInfo: {
+    name: string;
+    sell: { brutto: number | null; netto: number | null };
+    cost: { brutto: number | null; netto: number | null };
+  } | null = null;
+  if (extra?.deposit_product_id != null) {
+    const [{ data: depProd }, { data: depExtra }] = await Promise.all([
+      supabase
+        .from("r2o_products")
+        .select(
+          "product_id, product_name, product_price, product_price_includes_vat, product_vat",
+        )
+        .eq("owner_id", user!.id)
+        .eq("product_id", extra.deposit_product_id)
+        .maybeSingle<{
+          product_id: number;
+          product_name: string | null;
+          product_price: number | null;
+          product_price_includes_vat: boolean | null;
+          product_vat: number | null;
+        }>(),
+      supabase
+        .from("bb_product_extras")
+        .select("cost_price, cost_includes_vat")
+        .eq("owner_id", user!.id)
+        .eq("r2o_product_id", extra.deposit_product_id)
+        .maybeSingle<{
+          cost_price: number | null;
+          cost_includes_vat: boolean | null;
+        }>(),
+    ]);
+    if (depProd) {
+      const depVat = depProd.product_vat != null ? Number(depProd.product_vat) : 0;
+      depositInfo = {
+        name: depProd.product_name ?? `#${depProd.product_id}`,
+        sell: bruttoNetto(
+          depProd.product_price,
+          depProd.product_price_includes_vat,
+          depVat,
+        ),
+        cost: bruttoNetto(
+          depExtra?.cost_price,
+          depExtra?.cost_includes_vat,
+          depVat,
+        ),
+      };
+    }
+  }
+
+  const totalSellBrutto =
+    sell.brutto != null
+      ? sell.brutto + (depositInfo?.sell.brutto ?? 0)
       : null;
+  const totalSellNetto =
+    sell.netto != null
+      ? sell.netto + (depositInfo?.sell.netto ?? 0)
+      : null;
+  const totalCostNetto =
+    cost.netto != null ? cost.netto + (depositInfo?.cost.netto ?? 0) : null;
 
   return (
     <div className="flex flex-col gap-8">
@@ -117,33 +191,124 @@ export default async function EditProductPage({
         </p>
       </header>
 
-      <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Stat
-          label="Verkaufspreis (r2o)"
-          value={
-            product.product_price != null
-              ? `${formatEUR(product.product_price)} ${product.product_price_includes_vat ? "brutto" : "netto"}`
-              : "—"
-          }
-          hint={
-            product.product_vat != null
-              ? `${product.product_vat}% MwSt`
-              : undefined
-          }
-        />
-        <Stat
-          label="Einkaufspreis (bottlebike)"
-          value={
-            extra?.cost_price != null ? formatEUR(extra.cost_price) : "—"
-          }
-          hint="trägst du unten ein"
-          warning={extra?.cost_price == null}
-        />
-        <Stat
-          label="Marge"
-          value={margin != null ? formatPercent(margin) : "—"}
-          accent={margin != null && margin >= 30}
-        />
+      <section className="rounded-2xl border border-border bg-card p-6">
+        <div className="flex items-end justify-between gap-3 mb-4">
+          <div>
+            <h2 className="font-heading text-lg font-semibold">Kalkulation</h2>
+            <p className="text-xs text-muted-foreground">
+              Marge = (VK netto − EK netto) ÷ VK netto · gilt überall in der App
+            </p>
+          </div>
+          {vat > 0 && (
+            <span className="text-xs text-muted-foreground">{vat}% MwSt</span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <PriceTile
+            label="Verkauf an Kunde"
+            primary={sell.netto != null ? `${formatEUR(sell.netto)} netto` : "—"}
+            secondary={sell.brutto != null ? `${formatEUR(sell.brutto)} brutto` : null}
+            source="ready2order"
+          />
+          <PriceTile
+            label="Einkauf"
+            primary={cost.netto != null ? `${formatEUR(cost.netto)} netto` : "—"}
+            secondary={cost.brutto != null ? `${formatEUR(cost.brutto)} brutto` : null}
+            source={cost.netto == null ? "trägst du unten ein" : "bottlebike"}
+            warning={cost.netto == null}
+          />
+          <PriceTile
+            label="Rohertrag / Marge"
+            primary={
+              marginEur != null ? `${formatEUR(marginEur)} / Stk` : "—"
+            }
+            secondary={margin != null ? `${formatPercent(margin)} Marge` : null}
+            source={
+              m
+                ? `${formatEUR(m.sellNet)} − ${formatEUR(m.costNet)}`
+                : "EK fehlt"
+            }
+            accent={margin != null && margin >= 30}
+          />
+        </div>
+
+        {depositInfo && (
+          <>
+            <div className="my-5 h-px bg-border" />
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Pfand (Pass-through · wirkt nicht auf Marge)
+                </p>
+                <p className="text-sm">
+                  Bei jedem Verkauf zusätzlich:{" "}
+                  <Link
+                    href={`/products/${extra?.deposit_product_id}`}
+                    className="font-medium hover:underline"
+                    style={{ color: "var(--brand)" }}
+                  >
+                    {depositInfo.name}
+                  </Link>
+                </p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+              <PriceTile
+                label="Pfand Verkauf"
+                primary={
+                  depositInfo.sell.netto != null
+                    ? `${formatEUR(depositInfo.sell.netto)} netto`
+                    : "—"
+                }
+                secondary={
+                  depositInfo.sell.brutto != null
+                    ? `${formatEUR(depositInfo.sell.brutto)} brutto`
+                    : null
+                }
+                source="ready2order"
+              />
+              <PriceTile
+                label="Pfand Einkauf"
+                primary={
+                  depositInfo.cost.netto != null
+                    ? `${formatEUR(depositInfo.cost.netto)} netto`
+                    : "—"
+                }
+                secondary={
+                  depositInfo.cost.brutto != null
+                    ? `${formatEUR(depositInfo.cost.brutto)} brutto`
+                    : null
+                }
+                source={
+                  depositInfo.cost.netto == null
+                    ? "EK noch nicht gepflegt"
+                    : "bottlebike"
+                }
+                warning={depositInfo.cost.netto == null}
+              />
+              <PriceTile
+                label="Kunde zahlt insg."
+                primary={
+                  totalSellNetto != null
+                    ? `${formatEUR(totalSellNetto)} netto`
+                    : "—"
+                }
+                secondary={
+                  totalSellBrutto != null
+                    ? `${formatEUR(totalSellBrutto)} brutto`
+                    : null
+                }
+                source={
+                  totalCostNetto != null
+                    ? `EK insg. ${formatEUR(totalCostNetto)} netto`
+                    : "Hauptprodukt + Pfand"
+                }
+                accent
+              />
+            </div>
+          </>
+        )}
       </section>
 
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -200,27 +365,31 @@ export default async function EditProductPage({
   );
 }
 
-function Stat({
+function PriceTile({
   label,
-  value,
-  hint,
+  primary,
+  secondary,
+  source,
   accent,
   warning,
 }: {
   label: string;
-  value: string;
-  hint?: string;
+  primary: string;
+  secondary?: string | null;
+  source?: string | null;
   accent?: boolean;
   warning?: boolean;
 }) {
   return (
     <div
-      className="rounded-xl border border-border bg-card px-4 py-3"
+      className="rounded-xl border border-border bg-background px-4 py-3"
       style={
         accent
           ? {
               backgroundImage:
                 "linear-gradient(135deg, var(--brand-soft), transparent 70%)",
+              borderColor:
+                "color-mix(in oklab, var(--brand) 30%, transparent)",
             }
           : undefined
       }
@@ -229,7 +398,7 @@ function Stat({
         {label}
       </div>
       <div
-        className="font-heading text-2xl font-extrabold tabular-nums tracking-tight"
+        className="mt-0.5 font-heading text-xl font-extrabold tabular-nums tracking-tight"
         style={
           accent
             ? { color: "var(--brand)" }
@@ -238,10 +407,17 @@ function Stat({
               : undefined
         }
       >
-        {value}
+        {primary}
       </div>
-      {hint && (
-        <div className="mt-0.5 text-[11px] text-muted-foreground">{hint}</div>
+      {secondary && (
+        <div className="text-xs text-muted-foreground tabular-nums">
+          {secondary}
+        </div>
+      )}
+      {source && (
+        <div className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+          {source}
+        </div>
       )}
     </div>
   );
