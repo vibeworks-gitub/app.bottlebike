@@ -35,6 +35,9 @@ type Row = {
   notes: string;
   // welche Felder wurden manuell vom User getippt (nicht auto-gefuellt)?
   dirty: { packages?: boolean; singles?: boolean; unit_cost_net?: boolean; expiry_date?: boolean; notes?: boolean };
+  // Wenn diese Zeile automatisch als Pfand-Zusatz angelegt wurde:
+  auto_deposit_for?: string; // uid der Hauptzeile
+  auto_deposit_product_id?: number; // welches Produkt wurde dabei auto-gesetzt
 };
 
 function newRow(): Row {
@@ -150,8 +153,8 @@ export function PurchaseForm({
         : undefined;
 
     setRows((rs) => {
-      // 1) Zeile selbst aktualisieren — Auto-Fill ueberschreibt nicht-dirty Werte
-      const updated = rs.map((r) => {
+      // 1) Hauptzeile aktualisieren — Auto-Fill ueberschreibt nicht-dirty Werte
+      let updated = rs.map((r) => {
         if (r.uid !== uid) return r;
         const next: Row = { ...r, product_id: value };
         if (opt) {
@@ -167,7 +170,6 @@ export function PurchaseForm({
             next.expiry_date = d.expiry_date;
           }
         } else {
-          // Produkt entfernt -> Auto-gefuellte Felder leeren
           if (!r.dirty.packages) next.packages = "";
           if (!r.dirty.singles) next.singles = "";
           if (!r.dirty.unit_cost_net) next.unit_cost_net = "";
@@ -176,24 +178,71 @@ export function PurchaseForm({
         return next;
       });
 
-      // 2) Pfand-Auto-Position anhaengen (falls noch nicht vorhanden)
-      if (!depositOpt) return updated;
+      const mainRow = updated.find((r) => r.uid === uid);
+      const totalQty = mainRow ? rowTotal(mainRow, opt) : 0;
+
+      // 2) Bestehende Auto-Pfand-Zeile fuer diese Hauptzeile finden
+      const existingIdx = updated.findIndex((r) => r.auto_deposit_for === uid);
+      const existing = existingIdx >= 0 ? updated[existingIdx] : null;
+      // User hat die Zeile manuell angepasst (Produkt oder Felder)?
+      const isUntouched =
+        existing != null &&
+        Number(existing.product_id) === existing.auto_deposit_product_id &&
+        !existing.dirty.packages &&
+        !existing.dirty.singles &&
+        !existing.dirty.unit_cost_net &&
+        !existing.dirty.expiry_date &&
+        !existing.dirty.notes;
+
+      if (!depositOpt) {
+        // Neues Produkt hat keinen Pfand -> alte Auto-Pfand-Zeile entfernen (falls untouched)
+        if (existing && isUntouched) {
+          updated = updated.filter((_, i) => i !== existingIdx);
+        }
+        return updated;
+      }
+
+      // Neues Produkt hat Pfand. Existierende Auto-Zeile updaten oder neu anlegen.
+      const d = defaultsForProduct(depositOpt);
+      const depositSingles = totalQty > 0 ? String(totalQty) : d.singles;
+
+      if (existing && isUntouched) {
+        // Auto-Zeile auf das neue Pfand-Produkt umstellen
+        updated = updated.map((r, i) =>
+          i === existingIdx
+            ? {
+                ...r,
+                product_id: String(depositOpt.product_id),
+                auto_deposit_product_id: depositOpt.product_id,
+                packages: "",
+                singles: depositSingles,
+                unit_cost_net: d.unit_cost_net,
+                expiry_date: d.expiry_date,
+                notes: `Pfand zu ${opt?.product_name ?? ""}`.trim(),
+              }
+            : r,
+        );
+        return updated;
+      }
+
+      // Wenn schon irgendeine (manuell angelegte) Zeile mit diesem Pfand-Produkt
+      // existiert -> nicht doppelt anlegen.
       const alreadyHasDeposit = updated.some(
         (r) => Number(r.product_id) === depositOpt.product_id,
       );
       if (alreadyHasDeposit) return updated;
-      const mainRow = updated.find((r) => r.uid === uid);
-      const totalQty = mainRow ? rowTotal(mainRow, opt) : 0;
-      const d = defaultsForProduct(depositOpt);
+
       const depositRow: Row = {
         uid: Math.random().toString(36).slice(2),
         product_id: String(depositOpt.product_id),
         packages: "",
-        singles: totalQty > 0 ? String(totalQty) : d.singles,
+        singles: depositSingles,
         unit_cost_net: d.unit_cost_net,
         expiry_date: d.expiry_date,
         notes: `Pfand zu ${opt?.product_name ?? ""}`.trim(),
         dirty: {},
+        auto_deposit_for: uid,
+        auto_deposit_product_id: depositOpt.product_id,
       };
       return [...updated, depositRow];
     });
