@@ -153,10 +153,10 @@ export function PurchaseForm({
   for (const p of products) productById.set(p.product_id, p);
 
   function update(uid: string, field: keyof Row, value: string) {
-    setRows((rs) =>
-      rs.map((r) => {
+    setRows((rs) => {
+      let next = rs.map((r) => {
         if (r.uid !== uid) return r;
-        const next = { ...r, [field]: value };
+        const updated = { ...r, [field]: value };
         if (
           field === "packages" ||
           field === "singles" ||
@@ -164,11 +164,40 @@ export function PurchaseForm({
           field === "expiry_date" ||
           field === "notes"
         ) {
-          next.dirty = { ...r.dirty, [field]: true };
+          updated.dirty = { ...r.dirty, [field]: true };
         }
-        return next;
-      }),
-    );
+        return updated;
+      });
+
+      // Wenn sich die Stk-Menge der Hauptzeile aendert (packages/singles),
+      // die zugeordnete Auto-Pfand-Zeile mitnachfuehren — solange diese vom
+      // User nicht selber editiert wurde.
+      if (field === "packages" || field === "singles") {
+        const mainRow = next.find((r) => r.uid === uid);
+        if (mainRow) {
+          const mainOpt = mainRow.product_id
+            ? productById.get(Number(mainRow.product_id))
+            : undefined;
+          const newTotal = rowTotal(mainRow, mainOpt);
+          next = next.map((r) => {
+            if (
+              r.auto_deposit_for === uid &&
+              Number(r.product_id) === r.auto_deposit_product_id &&
+              !r.dirty.packages &&
+              !r.dirty.singles
+            ) {
+              return {
+                ...r,
+                packages: "",
+                singles: newTotal > 0 ? String(newTotal) : "",
+              };
+            }
+            return r;
+          });
+        }
+      }
+      return next;
+    });
   }
 
   function defaultsForProduct(opt: ProductOption | undefined): {
