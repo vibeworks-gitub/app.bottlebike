@@ -356,6 +356,8 @@ export default async function EditProductPage({
           initial={extra ?? null}
           suppliers={suppliers ?? []}
           sellingPrice={product.product_price ?? null}
+          sellingPriceIncludesVat={product.product_price_includes_vat ?? null}
+          vatRate={product.product_vat ?? null}
           allProducts={(allProducts ?? []).filter(
             (p) => p.product_id !== product.product_id,
           )}

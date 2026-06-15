@@ -285,12 +285,16 @@ export function PurchaseForm({
         return updated;
       }
 
-      // Wenn schon irgendeine (manuell angelegte) Zeile mit diesem Pfand-Produkt
-      // existiert -> nicht doppelt anlegen.
-      const alreadyHasDeposit = updated.some(
-        (r) => Number(r.product_id) === depositOpt.product_id,
+      // Wenn der User selber (manuell, nicht auto) das Pfand-Produkt schon in
+      // der Liste hat -> nicht zusaetzlich auto-anlegen (vermeidet Doppelungen
+      // wenn jemand die Pfand-Zeile von Hand ergaenzt hat). Auto-Pfand-Zeilen
+      // anderer Hauptzeilen sind aber ok — jede Hauptzeile bekommt ihre eigene.
+      const userAddedDeposit = updated.some(
+        (r) =>
+          Number(r.product_id) === depositOpt.product_id &&
+          !r.auto_deposit_for,
       );
-      if (alreadyHasDeposit) return updated;
+      if (userAddedDeposit) return updated;
 
       const depositRow: Row = {
         uid: Math.random().toString(36).slice(2),
@@ -545,13 +549,18 @@ export function PurchaseForm({
             );
           })}
           <div className="flex items-center justify-between gap-3 border-t border-border pt-3">
-            <button
-              type="button"
-              onClick={() => setRows((rs) => [...rs, newRow()])}
-              className={buttonVariants({ variant: "outline", size: "sm" })}
-            >
-              + Position
-            </button>
+            <div className="flex flex-col gap-1">
+              <button
+                type="button"
+                onClick={() => setRows((rs) => [...rs, newRow()])}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                + Position
+              </button>
+              <p className="text-[10px] text-muted-foreground">
+                Σ Stk = Gebinde × Gebinde-Größe + Einzeln · Summe netto = Σ Stk × EK netto
+              </p>
+            </div>
             <div className="flex flex-col items-end gap-1 text-sm">
               <div className="flex items-center gap-6 tabular-nums">
                 <span className="text-muted-foreground">Netto</span>

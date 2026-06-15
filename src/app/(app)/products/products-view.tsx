@@ -32,6 +32,8 @@ export type Row = {
   cost_price: number | null;
   cost_includes_vat: boolean | null;
   supplier_id: string | null;
+  deposit_product_id: number | null;
+  deposit_product_name: string | null;
 };
 
 export type GroupOption = { id: number; name: string };
@@ -40,7 +42,27 @@ export type SupplierOption = { id: string; name: string };
 type Pflege = "all" | "gepflegt" | "fehlt";
 type Status = "all" | "active" | "inactive";
 
-function marginPct(row: Row): number | null {
+function isPfandRow(row: Row, groupNameById: Map<number, string>): boolean {
+  if (row.productgroup_id == null) return false;
+  const name = (groupNameById.get(row.productgroup_id) ?? "").toLowerCase();
+  return name.includes("pfand");
+}
+
+function isNegativePriceRow(row: Row): boolean {
+  return (
+    (row.product_price != null && row.product_price < 0) ||
+    (row.cost_price != null && row.cost_price < 0)
+  );
+}
+
+function marginPct(
+  row: Row,
+  groupNameById: Map<number, string>,
+): number | null {
+  // Pfand-Produkte: Pass-through, keine Marge anzeigen.
+  if (isPfandRow(row, groupNameById)) return null;
+  // Stornoartikel mit negativen Preisen: nicht sinnvoll als Marge.
+  if (isNegativePriceRow(row)) return null;
   // Einheitliche Handelsmarge auf Netto-Basis (siehe lib/cost-math).
   const m = computeMargin({
     sellPrice: row.product_price,
@@ -111,7 +133,7 @@ export function ProductsView({
     const inactiveCount = rows.length - active.length;
     const totalGepflegt = active.filter((r) => r.cost_price != null).length;
     const margins = active
-      .map(marginPct)
+      .map((r) => marginPct(r, groupName))
       .filter((m): m is number => m != null && Number.isFinite(m));
     const avgMargin =
       margins.length > 0
@@ -150,8 +172,13 @@ export function ProductsView({
               ? `${stats.avgMargin.toFixed(1)}%`
               : "—"
           }
+          hint="netto-Marge, ohne Pfand/Storno"
         />
       </div>
+      <p className="px-1 text-[11px] text-muted-foreground">
+        Marge = (VK netto − EK netto) ÷ VK netto · Pfand und Storno-Produkte
+        werden hier ausgeschlossen.
+      </p>
 
       <div className="rounded-xl border border-border bg-card p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
@@ -221,6 +248,9 @@ export function ProductsView({
               <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                 Warengruppe
               </TableHead>
+              <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                Pfand
+              </TableHead>
               <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
                 EK
               </TableHead>
@@ -243,7 +273,7 @@ export function ProductsView({
             {filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={8}
+                  colSpan={9}
                   className="text-center text-sm text-muted-foreground py-12"
                 >
                   Keine Produkte mit diesen Filtern.
@@ -251,7 +281,7 @@ export function ProductsView({
               </TableRow>
             )}
             {filtered.map((p) => {
-              const m = marginPct(p);
+              const m = marginPct(p, groupName);
               const ekFehlt = p.cost_price == null;
               return (
                 <TableRow key={p.product_id}>
@@ -273,6 +303,19 @@ export function ProductsView({
                       ? (groupName.get(p.productgroup_id) ??
                         `#${p.productgroup_id}`)
                       : "—"}
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {p.deposit_product_id != null ? (
+                      <Link
+                        href={`/products/${p.deposit_product_id}`}
+                        className="hover:underline"
+                        style={{ color: "var(--brand)" }}
+                      >
+                        {p.deposit_product_name ?? `#${p.deposit_product_id}`}
+                      </Link>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
                     {ekFehlt ? (

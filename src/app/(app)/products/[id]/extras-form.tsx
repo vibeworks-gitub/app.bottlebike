@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { computeMargin } from "@/lib/cost-math";
 import { saveProductExtras, type ProductExtraState } from "../actions";
 import type { ProductExtra, Supplier } from "@/lib/types/database";
 
@@ -12,12 +13,16 @@ export function ExtrasForm({
   initial,
   suppliers,
   sellingPrice,
+  sellingPriceIncludesVat,
+  vatRate,
   allProducts,
 }: {
   r2oProductId: number;
   initial: ProductExtra | null;
   suppliers: Pick<Supplier, "id" | "name">[];
   sellingPrice: number | null;
+  sellingPriceIncludesVat: boolean | null;
+  vatRate: number | null;
   allProducts: { product_id: number; product_name: string | null }[];
 }) {
   const action = saveProductExtras.bind(null, r2oProductId);
@@ -29,19 +34,21 @@ export function ExtrasForm({
   const [costPrice, setCostPrice] = useState(
     initial?.cost_price?.toString() ?? "",
   );
+  // Input ist als "netto" gelabeled — cost_includes_vat = false
+  const [costIncludesVat] = useState<boolean>(initial?.cost_includes_vat ?? false);
 
   const margin = useMemo(() => {
     const cp = Number(costPrice.replace(",", "."));
-    if (
-      !Number.isFinite(cp) ||
-      cp <= 0 ||
-      sellingPrice == null ||
-      sellingPrice <= 0
-    ) {
-      return null;
-    }
-    return ((sellingPrice - cp) / sellingPrice) * 100;
-  }, [costPrice, sellingPrice]);
+    if (!Number.isFinite(cp) || cp <= 0) return null;
+    const m = computeMargin({
+      sellPrice: sellingPrice,
+      sellIncludesVat: sellingPriceIncludesVat,
+      costPrice: cp,
+      costIncludesVat: costIncludesVat,
+      vatRate: vatRate,
+    });
+    return m ? m.marginPct : null;
+  }, [costPrice, sellingPrice, sellingPriceIncludesVat, vatRate, costIncludesVat]);
 
   return (
     <form
@@ -71,7 +78,10 @@ export function ExtrasForm({
               className="text-xs font-medium"
               style={{ color: "var(--brand)" }}
             >
-              Marge: {margin.toFixed(1)}%
+              Marge: {margin.toFixed(1)}%{" "}
+              <span className="font-normal text-muted-foreground">
+                · (VK netto − EK netto) ÷ VK netto
+              </span>
             </p>
           )}
         </div>

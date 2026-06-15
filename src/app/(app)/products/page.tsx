@@ -27,6 +27,7 @@ type ExtraRow = {
   cost_price: number | null;
   cost_includes_vat: boolean | null;
   supplier_id: string | null;
+  deposit_product_id: number | null;
 };
 
 export default async function ProductsPage() {
@@ -52,7 +53,9 @@ export default async function ProductsPage() {
       .returns<R2oProductRow[]>(),
     supabase
       .from("bb_product_extras")
-      .select("r2o_product_id, cost_price, cost_includes_vat, supplier_id")
+      .select(
+        "r2o_product_id, cost_price, cost_includes_vat, supplier_id, deposit_product_id",
+      )
       .eq("owner_id", user!.id)
       .returns<ExtraRow[]>(),
     supabase
@@ -69,6 +72,11 @@ export default async function ProductsPage() {
   const extraById = new Map<number, ExtraRow>();
   for (const e of extras ?? []) extraById.set(e.r2o_product_id, e);
 
+  // Produktnamen-Map fuer Pfand-Aufloesung
+  const productNameById = new Map<number, string>();
+  for (const p of products ?? [])
+    productNameById.set(p.product_id, p.product_name ?? `#${p.product_id}`);
+
   const rows: Row[] = (products ?? []).map((p) => {
     const e = extraById.get(p.product_id);
     return {
@@ -76,6 +84,11 @@ export default async function ProductsPage() {
       cost_price: e?.cost_price ?? null,
       cost_includes_vat: e?.cost_includes_vat ?? null,
       supplier_id: e?.supplier_id ?? null,
+      deposit_product_id: e?.deposit_product_id ?? null,
+      deposit_product_name:
+        e?.deposit_product_id != null
+          ? productNameById.get(e.deposit_product_id) ?? null
+          : null,
     };
   });
 

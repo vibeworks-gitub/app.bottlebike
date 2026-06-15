@@ -233,12 +233,14 @@ export default async function DashboardPage({
           label="Umsatz brutto"
           value={formatEUR(calc.revenue)}
           sub={`${calc.invoiceCount} Belege · ${calc.itemCount} Stk`}
+          formula="Σ Belege inkl. MwSt"
           tone="brand"
         />
         <KpiTile
           label="Umsatz netto"
           value={formatEUR(calc.revenueNet)}
           sub={`MwSt ${formatEUR(calc.vat)}`}
+          formula="Umsatz brutto − MwSt"
         />
         <KpiTile
           label="Wareneinsatz"
@@ -248,11 +250,13 @@ export default async function DashboardPage({
               ? `${calc.itemsCovered}/${calc.itemsTotal} Items mit EK`
               : undefined
           }
+          formula="Σ Stk × EK netto/Stk"
         />
         <KpiTile
           label="Rohertrag"
           value={formatEUR(calc.grossProfit)}
           sub={margePct != null ? `Marge ${formatPercent(margePct)}` : undefined}
+          formula="Umsatz netto − Wareneinsatz"
           tone={
             calc.grossProfit < 0 ? "warn" : margePct && margePct > 50 ? "brand" : undefined
           }
@@ -261,6 +265,7 @@ export default async function DashboardPage({
           label="Personal & Fix"
           value={formatEUR(calc.staffTotal + calc.fixedCosts)}
           sub={`Personal ${formatEUR(calc.staffTotal)} · Fix ${formatEUR(calc.fixedCosts)}`}
+          formula="anteilig auf Zeitraum"
         />
         <KpiTile
           label="Gewinn"
@@ -270,6 +275,7 @@ export default async function DashboardPage({
               ? `${formatPercent(profitMarginPct)}`
               : undefined
           }
+          formula="Rohertrag − Personal & Fix"
           tone={calc.profit < 0 ? "warn" : "brand"}
         />
       </section>
@@ -570,11 +576,13 @@ function KpiTile({
   label,
   value,
   sub,
+  formula,
   tone,
 }: {
   label: string;
   value: string;
   sub?: string;
+  formula?: string;
   tone?: "brand" | "warn";
 }) {
   return (
@@ -605,6 +613,11 @@ function KpiTile({
       </p>
       {sub && (
         <p className="mt-0.5 text-xs text-muted-foreground">{sub}</p>
+      )}
+      {formula && (
+        <p className="mt-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
+          {formula}
+        </p>
       )}
     </div>
   );

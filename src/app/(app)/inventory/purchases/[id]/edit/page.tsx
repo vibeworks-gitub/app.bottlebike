@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { buttonVariants } from "@/components/ui/button";
 import { PurchaseForm, type ProductOption } from "../../purchase-form";
 import { updatePurchase } from "../../actions";
+import { bruttoNetto } from "@/lib/cost-math";
 import type {
   Location,
   ProductExtra,
@@ -118,14 +119,11 @@ export default async function EditPurchasePage({
   }
   const enrichedProducts: ProductOption[] = (prods ?? []).map((p) => {
     const e = extraById.get(p.product_id);
-    let defaultCostNet: number | null = null;
-    if (e?.cost_price != null) {
-      if (e.cost_includes_vat && p.product_vat != null && p.product_vat > 0) {
-        defaultCostNet = Number(e.cost_price) / (1 + Number(p.product_vat) / 100);
-      } else {
-        defaultCostNet = Number(e.cost_price);
-      }
-    }
+    const defaultCostNet = bruttoNetto(
+      e?.cost_price,
+      e?.cost_includes_vat,
+      p.product_vat,
+    ).netto;
     return {
       product_id: p.product_id,
       product_name: p.product_name,
