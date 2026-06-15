@@ -45,6 +45,7 @@ type R2oProduct = {
   owner_id: string;
   product_id: number;
   product_name: string | null;
+  productgroup_id: number | null;
 };
 
 type R2oUser = {
@@ -97,6 +98,7 @@ export default async function InventoryOverviewPage() {
     { data: stock },
     { data: thresholds },
     { data: products },
+    { data: groups },
     { data: registers },
     { data: unbooked },
     { data: movements },
@@ -115,8 +117,12 @@ export default async function InventoryOverviewPage() {
     supabase.from("bb_stock_thresholds").select("*").returns<StockThreshold[]>(),
     supabase
       .from("r2o_products")
-      .select("owner_id, product_id, product_name")
+      .select("owner_id, product_id, product_name, productgroup_id")
       .returns<R2oProduct[]>(),
+    supabase
+      .from("r2o_productgroups")
+      .select("productgroup_id, productgroup_name")
+      .returns<{ productgroup_id: number; productgroup_name: string | null }[]>(),
     supabase
       .from("bb_cash_registers_status")
       .select("*")
@@ -204,6 +210,20 @@ export default async function InventoryOverviewPage() {
   const productById = new Map<number, string>();
   for (const p of products ?? [])
     productById.set(p.product_id, p.product_name ?? `#${p.product_id}`);
+
+  // Pfand-Produkte (Warengruppe enthaelt "pfand")
+  const pfandGroupIds = new Set<number>();
+  for (const g of groups ?? []) {
+    if ((g.productgroup_name ?? "").toLowerCase().includes("pfand")) {
+      pfandGroupIds.add(g.productgroup_id);
+    }
+  }
+  const isPfandProduct = new Set<number>();
+  for (const p of products ?? []) {
+    if (p.productgroup_id != null && pfandGroupIds.has(p.productgroup_id)) {
+      isPfandProduct.add(p.product_id);
+    }
+  }
   const userById = new Map<number, R2oUser>();
   for (const u of users ?? []) userById.set(u.r2o_user_id, u);
   const registerByR2o = new Map<string, string>();
@@ -404,7 +424,12 @@ export default async function InventoryOverviewPage() {
                   min: thresholdMap[l.id]?.[Number(pid)] ?? null,
                 }))
                 .sort((a, b) => a.name.localeCompare(b.name));
-              const totalQty = items.reduce((s, i) => s + i.qty, 0);
+              const saleQty = items
+                .filter((i) => !isPfandProduct.has(i.pid))
+                .reduce((s, i) => s + i.qty, 0);
+              const pfandQty = items
+                .filter((i) => isPfandProduct.has(i.pid))
+                .reduce((s, i) => s + i.qty, 0);
               const lowCount = items.filter(
                 (i) => i.min != null && i.qty < i.min,
               ).length;
@@ -417,7 +442,10 @@ export default async function InventoryOverviewPage() {
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {l.type === "warehouse" ? "Lager" : "Bike"} ·{" "}
                         {items.length} Produkt{items.length === 1 ? "" : "e"} ·{" "}
-                        Σ {totalQty.toLocaleString("de-DE")}
+                        Verkauf {saleQty.toLocaleString("de-DE")}
+                        {pfandQty > 0 && (
+                          <> · Pfand {pfandQty.toLocaleString("de-DE")}</>
+                        )}
                         {l.type === "bike" && todaySold > 0 && (
                           <>
                             {" "}
@@ -449,12 +477,20 @@ export default async function InventoryOverviewPage() {
                       <ul className="max-h-72 divide-y divide-border overflow-auto">
                         {items.map((i) => {
                           const low = i.min != null && i.qty < i.min;
+                          const isPfand = isPfandProduct.has(i.pid);
                           return (
                             <li
                               key={i.pid}
                               className="flex items-center justify-between gap-3 px-4 py-2 text-sm"
                             >
-                              <span className="truncate">{i.name}</span>
+                              <span className="truncate">
+                                {i.name}
+                                {isPfand && (
+                                  <span className="ml-2 rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+                                    Pfand
+                                  </span>
+                                )}
+                              </span>
                               <span
                                 className="tabular-nums font-medium"
                                 style={

@@ -46,6 +46,7 @@ const PERIOD_PRESETS: ReadonlyArray<{
 type R2oProduct = {
   product_id: number;
   product_name: string | null;
+  productgroup_id: number | null;
 };
 
 type ItemForTopProducts = {
@@ -100,45 +101,83 @@ export default async function DashboardPage({
   })();
   const toIso = period.to.toISOString();
 
-  const [{ data: items }, { data: products }, { data: locations }, { data: stock }, { data: thresholds }, { data: movements }] =
-    await Promise.all([
-      supabase
-        .from("r2o_invoice_items")
-        .select(
-          "invoice_id, product_id, item_quantity, item_qty, item_total, item_total_net, item_retour",
-        )
-        .eq("owner_id", user.id)
-        .gte("item_timestamp", fromIso)
-        .lte("item_timestamp", toIso)
-        .limit(50000)
-        .returns<ItemForTopProducts[]>(),
-      supabase
-        .from("r2o_products")
-        .select("product_id, product_name")
-        .eq("owner_id", user.id)
-        .returns<R2oProduct[]>(),
-      supabase
-        .from("bb_locations")
-        .select("*")
-        .eq("active", true)
-        .order("type", { ascending: true })
-        .order("name", { ascending: true })
-        .returns<Location[]>(),
-      supabase
-        .from("bb_stock_by_location")
-        .select("*")
-        .returns<StockByLocation[]>(),
-      supabase
-        .from("bb_stock_thresholds")
-        .select("*")
-        .returns<StockThreshold[]>(),
-      supabase
-        .from("bb_stock_movements")
-        .select("*")
-        .order("occurred_at", { ascending: false })
-        .limit(10)
-        .returns<StockMovement[]>(),
-    ]);
+  const [
+    { data: items },
+    { data: products },
+    { data: groups },
+    { data: locations },
+    { data: stock },
+    { data: thresholds },
+    { data: movements },
+  ] = await Promise.all([
+    supabase
+      .from("r2o_invoice_items")
+      .select(
+        "invoice_id, product_id, item_quantity, item_qty, item_total, item_total_net, item_retour",
+      )
+      .eq("owner_id", user.id)
+      .gte("item_timestamp", fromIso)
+      .lte("item_timestamp", toIso)
+      .limit(50000)
+      .returns<ItemForTopProducts[]>(),
+    supabase
+      .from("r2o_products")
+      .select("product_id, product_name, productgroup_id")
+      .eq("owner_id", user.id)
+      .returns<R2oProduct[]>(),
+    supabase
+      .from("r2o_productgroups")
+      .select("productgroup_id, productgroup_name")
+      .eq("owner_id", user.id)
+      .returns<{ productgroup_id: number; productgroup_name: string | null }[]>(),
+    supabase
+      .from("bb_locations")
+      .select("*")
+      .eq("active", true)
+      .order("type", { ascending: true })
+      .order("name", { ascending: true })
+      .returns<Location[]>(),
+    supabase
+      .from("bb_stock_by_location")
+      .select("*")
+      .returns<StockByLocation[]>(),
+    supabase
+      .from("bb_stock_thresholds")
+      .select("*")
+      .returns<StockThreshold[]>(),
+    supabase
+      .from("bb_stock_movements")
+      .select("*")
+      .order("occurred_at", { ascending: false })
+      .limit(10)
+      .returns<StockMovement[]>(),
+  ]);
+
+  // Alle Bewegungen seit heute 00:00 (fuer Per-Location-Detail)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayIso = todayStart.toISOString();
+  const { data: movementsToday } = await supabase
+    .from("bb_stock_movements")
+    .select("*")
+    .gte("occurred_at", todayIso)
+    .order("occurred_at", { ascending: false })
+    .limit(500)
+    .returns<StockMovement[]>();
+
+  // Pfand-Produkte erkennen (Warengruppe enthaelt "pfand")
+  const pfandGroupIds = new Set<number>();
+  for (const g of groups ?? []) {
+    if ((g.productgroup_name ?? "").toLowerCase().includes("pfand")) {
+      pfandGroupIds.add(g.productgroup_id);
+    }
+  }
+  const isPfandProduct = new Set<number>();
+  for (const p of products ?? []) {
+    if (p.productgroup_id != null && pfandGroupIds.has(p.productgroup_id)) {
+      isPfandProduct.add(p.product_id);
+    }
+  }
 
   // Top-Produkte aggregieren
   const productMap = new Map<number, string>();
@@ -165,8 +204,11 @@ export default async function DashboardPage({
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 10);
 
-  // Bestand pro Location aggregieren
-  const stockByLoc: Record<string, { total: number; below: number }> = {};
+  // Bestand pro Location aggregieren (Verkauf vs Pfand getrennt)
+  const stockByLoc: Record<
+    string,
+    { sale: number; pfand: number; below: number }
+  > = {};
   const thresholdMap: Record<string, Record<number, number>> = {};
   for (const t of thresholds ?? []) {
     if (!thresholdMap[t.location_id]) thresholdMap[t.location_id] = {};
@@ -180,16 +222,22 @@ export default async function DashboardPage({
   for (const l of locations ?? []) {
     const items = perLocItems[l.id] ?? {};
     const ths = thresholdMap[l.id] ?? {};
-    let total = 0;
+    let sale = 0;
+    let pfand = 0;
     let below = 0;
     for (const [pidStr, qty] of Object.entries(items)) {
-      total += qty;
       const pid = Number(pidStr);
+      if (isPfandProduct.has(pid)) pfand += qty;
+      else sale += qty;
       if (ths[pid] != null && qty < ths[pid]) below++;
     }
-    stockByLoc[l.id] = { total, below };
+    stockByLoc[l.id] = { sale, pfand, below };
   }
-  const totalStock = Object.values(stockByLoc).reduce((s, v) => s + v.total, 0);
+  const totalSale = Object.values(stockByLoc).reduce((s, v) => s + v.sale, 0);
+  const totalPfand = Object.values(stockByLoc).reduce(
+    (s, v) => s + v.pfand,
+    0,
+  );
   const totalLowItems = Object.values(stockByLoc).reduce(
     (s, v) => s + v.below,
     0,
@@ -202,6 +250,142 @@ export default async function DashboardPage({
 
   const locById = new Map<string, Location>();
   for (const l of locations ?? []) locById.set(l.id, l);
+
+  // Heute-Bewegungen pro Location gruppieren + Produkt-Delta aggregieren
+  const movementsByLoc: Record<string, StockMovement[]> = {};
+  for (const m of movementsToday ?? []) {
+    if (m.from_location_id) {
+      (movementsByLoc[m.from_location_id] ??= []).push(m);
+    }
+    if (m.to_location_id && m.to_location_id !== m.from_location_id) {
+      (movementsByLoc[m.to_location_id] ??= []).push(m);
+    }
+  }
+  const deltaByLoc: Record<string, Map<number, number>> = {};
+  for (const l of locations ?? []) {
+    const map = new Map<number, number>();
+    for (const m of movementsByLoc[l.id] ?? []) {
+      const q = Number(m.quantity);
+      const sign = m.to_location_id === l.id ? 1 : -1;
+      map.set(m.r2o_product_id, (map.get(m.r2o_product_id) ?? 0) + sign * q);
+    }
+    deltaByLoc[l.id] = map;
+  }
+
+  // Invoice-Lookup fuer Beleg/Kassa/User pro Sale-/Reversal-Bewegung
+  const invoiceIds = new Set<number>();
+  function collectInvoiceIds(ms: StockMovement[] | null | undefined) {
+    for (const m of ms ?? []) {
+      if (m.type === "sale" && m.ref_table === "r2o_invoice_items" && m.ref_id) {
+        const id = Number(m.ref_id.split(":")[0]);
+        if (Number.isFinite(id)) invoiceIds.add(id);
+      }
+      if (
+        m.type === "reversal" &&
+        (m.ref_table === "r2o_invoices_storno" || m.ref_table === "r2o_invoice_items") &&
+        m.ref_id
+      ) {
+        const id = Number(m.ref_id.split(":")[0]);
+        if (Number.isFinite(id)) invoiceIds.add(id);
+      }
+    }
+  }
+  collectInvoiceIds(movements);
+  collectInvoiceIds(movementsToday);
+
+  type InvoiceMeta = {
+    number_full: string | null;
+    user_id: number | null;
+    register_text: string | null;
+  };
+  const invoiceMap = new Map<number, InvoiceMeta>();
+  if (invoiceIds.size > 0) {
+    const { data: invs } = await supabase
+      .from("r2o_invoices")
+      .select("invoice_id, invoice_number_full, user_id, raw")
+      .in("invoice_id", [...invoiceIds])
+      .returns<
+        {
+          invoice_id: number;
+          invoice_number_full: string | null;
+          user_id: number | null;
+          raw: Record<string, unknown> | null;
+        }[]
+      >();
+    for (const i of invs ?? []) {
+      const raw = (i.raw ?? {}) as Record<string, unknown>;
+      const printer = raw["printer_id"];
+      const reg =
+        (printer != null ? String(printer) : null) ??
+        (raw["cashRegister_id"] as string | undefined) ??
+        (raw["cashRegisterId"] as string | undefined) ??
+        null;
+      invoiceMap.set(i.invoice_id, {
+        number_full: i.invoice_number_full,
+        user_id: i.user_id,
+        register_text: reg ? String(reg) : null,
+      });
+    }
+  }
+
+  // Staff-Namen + Kassa-Namen
+  const staffNameById = new Map<number, string>();
+  // (lazy load — wir haben die Staff-Daten in calc.byUser, aber fuer reine
+  // Namens-Aufloesung greifen wir direkt auf r2o_users zurueck)
+  const { data: r2oUsers } = await supabase
+    .from("r2o_users")
+    .select("r2o_user_id, user_first_name, user_last_name")
+    .returns<
+      { r2o_user_id: number; user_first_name: string | null; user_last_name: string | null }[]
+    >();
+  for (const u of r2oUsers ?? []) {
+    const name = [u.user_first_name, u.user_last_name].filter(Boolean).join(" ").trim();
+    staffNameById.set(u.r2o_user_id, name || `User #${u.r2o_user_id}`);
+  }
+  const registerByR2oId = new Map<string, string>();
+  const { data: regs } = await supabase
+    .from("bb_cash_registers")
+    .select("name, r2o_cash_register_id");
+  for (const r of regs ?? []) {
+    if (r.r2o_cash_register_id) registerByR2oId.set(r.r2o_cash_register_id, r.name);
+  }
+
+  function describeMovement(m: StockMovement): {
+    deltaForLoc: (locId: string) => number;
+    label: string;
+    detail: string;
+  } {
+    const sign = (locId: string) =>
+      m.to_location_id === locId ? 1 : m.from_location_id === locId ? -1 : 0;
+    let detail = "";
+    if (
+      (m.type === "sale" && m.ref_table === "r2o_invoice_items") ||
+      (m.type === "reversal" && m.ref_id)
+    ) {
+      const id = Number(m.ref_id?.split(":")[0] ?? "");
+      const info = Number.isFinite(id) ? invoiceMap.get(id) : null;
+      if (info) {
+        const reg = info.register_text
+          ? registerByR2oId.get(info.register_text) ??
+            `r2o ${info.register_text}`
+          : null;
+        const user = info.user_id ? staffNameById.get(info.user_id) : null;
+        detail = [
+          info.number_full ? `Beleg ${info.number_full}` : null,
+          reg,
+          user,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+    }
+    if (!detail && m.notes) detail = m.notes;
+    return {
+      deltaForLoc: sign,
+      label: movementLabel[m.type],
+      detail,
+    };
+  }
 
   return (
     <div className="flex flex-col gap-8">
@@ -394,7 +578,8 @@ export default async function DashboardPage({
           <div>
             <h2 className="font-heading text-lg font-semibold">Lagerbestand</h2>
             <p className="text-xs text-muted-foreground">
-              Σ {totalStock.toLocaleString("de-DE")} Stk in{" "}
+              Verkauf: {totalSale.toLocaleString("de-DE")} Stk · Pfand:{" "}
+              {totalPfand.toLocaleString("de-DE")} Stk · in{" "}
               {(locations ?? []).length} Standorten
               {totalLowItems > 0 && (
                 <>
@@ -426,37 +611,262 @@ export default async function DashboardPage({
             </Link>
           </p>
         ) : (
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
             {(locations ?? []).map((l) => {
-              const v = stockByLoc[l.id] ?? { total: 0, below: 0 };
+              const v =
+                stockByLoc[l.id] ?? { sale: 0, pfand: 0, below: 0 };
+              const delta = deltaByLoc[l.id] ?? new Map<number, number>();
+              const deltaEntries = [...delta.entries()]
+                .filter(([, d]) => d !== 0)
+                .map(([pid, d]) => ({
+                  pid,
+                  delta: d,
+                  current: perLocItems[l.id]?.[pid] ?? 0,
+                  name: productMap.get(pid) ?? `#${pid}`,
+                  isPfand: isPfandProduct.has(pid),
+                }))
+                .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+              const recent = (movementsByLoc[l.id] ?? []).slice(0, 25);
+              // Pro Movement Stand-nach-Bewegung berechnen (von "jetzt" zurueck rechnen)
+              const runningStock = new Map<number, number>();
+              const recentWithAfter = recent.map((m) => {
+                const pid = m.r2o_product_id;
+                if (!runningStock.has(pid)) {
+                  runningStock.set(pid, perLocItems[l.id]?.[pid] ?? 0);
+                }
+                const after = runningStock.get(pid)!;
+                const dForLoc =
+                  (m.to_location_id === l.id
+                    ? 1
+                    : m.from_location_id === l.id
+                      ? -1
+                      : 0) * Number(m.quantity);
+                runningStock.set(pid, after - dForLoc);
+                return { m, after, dForLoc };
+              });
               return (
-                <Link
+                <details
                   key={l.id}
-                  href="/inventory"
-                  className="rounded-xl border border-border bg-card p-4 transition-colors hover:border-foreground/20"
+                  className="group rounded-xl border border-border bg-card transition-colors hover:border-foreground/20"
                 >
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-medium">{l.name}</p>
-                    <Badge variant="outline" className="text-[10px]">
-                      {l.type === "warehouse" ? "Lager" : "Bike"}
-                    </Badge>
-                  </div>
-                  <p
-                    className="mt-2 font-heading text-2xl font-extrabold tabular-nums"
-                    style={{ color: "var(--brand)" }}
-                  >
-                    {v.total.toLocaleString("de-DE")}
-                  </p>
-                  <p className="text-xs text-muted-foreground">Stk gesamt</p>
-                  {v.below > 0 && (
-                    <p
-                      className="mt-1 text-xs font-medium"
-                      style={{ color: "var(--destructive)" }}
+                  <summary className="flex cursor-pointer list-none items-start justify-between gap-2 p-4">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-medium">{l.name}</p>
+                        <Badge variant="outline" className="text-[10px]">
+                          {l.type === "warehouse" ? "Lager" : "Bike"}
+                        </Badge>
+                      </div>
+                      <p
+                        className="mt-2 font-heading text-2xl font-extrabold tabular-nums"
+                        style={{ color: "var(--brand)" }}
+                      >
+                        {v.sale.toLocaleString("de-DE")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Stk Verkaufs-Bestand
+                        {v.pfand > 0 && (
+                          <>
+                            {" · "}
+                            +{v.pfand.toLocaleString("de-DE")} Pfand
+                          </>
+                        )}
+                      </p>
+                      {v.below > 0 && (
+                        <p
+                          className="mt-1 text-xs font-medium"
+                          style={{ color: "var(--destructive)" }}
+                        >
+                          ⚠ {v.below} unter Min
+                        </p>
+                      )}
+                      {deltaEntries.length > 0 && (
+                        <p className="mt-2 text-[11px] text-muted-foreground">
+                          Heute:{" "}
+                          {deltaEntries
+                            .slice(0, 3)
+                            .map((e) => (
+                              <span
+                                key={e.pid}
+                                className="mr-2 inline-block tabular-nums"
+                                style={{
+                                  color:
+                                    e.delta < 0
+                                      ? "var(--destructive)"
+                                      : "var(--brand)",
+                                }}
+                              >
+                                {e.delta > 0 ? "+" : ""}
+                                {e.delta} {e.name.split(" ").slice(0, 2).join(" ")}
+                              </span>
+                            ))}
+                          {deltaEntries.length > 3 && (
+                            <span className="text-muted-foreground/60">
+                              +{deltaEntries.length - 3} weitere
+                            </span>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className="ml-1 mt-1 inline-block text-xs text-muted-foreground transition-transform group-open:rotate-90"
+                      aria-hidden
                     >
-                      ⚠ {v.below} unter Min
-                    </p>
-                  )}
-                </Link>
+                      ▸
+                    </span>
+                  </summary>
+                  <div className="border-t border-border px-4 pb-4 pt-3 text-xs">
+                    {(() => {
+                      const stockEntries = Object.entries(
+                        perLocItems[l.id] ?? {},
+                      )
+                        .map(([pid, qty]) => ({
+                          pid: Number(pid),
+                          qty,
+                          name:
+                            productMap.get(Number(pid)) ?? `#${pid}`,
+                          isPfand: isPfandProduct.has(Number(pid)),
+                          deltaToday: delta.get(Number(pid)) ?? 0,
+                        }))
+                        .filter((s) => s.qty !== 0 || s.deltaToday !== 0)
+                        .sort((a, b) => a.name.localeCompare(b.name));
+                      return (
+                        <div className="mb-3">
+                          <div className="mb-1 grid grid-cols-[1fr_50px_50px] gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                            <span>Aktueller Bestand</span>
+                            <span className="text-right">Jetzt</span>
+                            <span className="text-right">Heute</span>
+                          </div>
+                          {stockEntries.length === 0 ? (
+                            <p className="text-muted-foreground">
+                              Kein Bestand.
+                            </p>
+                          ) : (
+                            <ul className="space-y-0.5">
+                              {stockEntries.map((s) => (
+                                <li
+                                  key={s.pid}
+                                  className="grid grid-cols-[1fr_50px_50px] items-center gap-2"
+                                >
+                                  <span className="truncate">
+                                    {s.name}
+                                    {s.isPfand && (
+                                      <span className="ml-1 rounded bg-muted px-1 text-[9px] text-muted-foreground">
+                                        Pfand
+                                      </span>
+                                    )}
+                                  </span>
+                                  <span
+                                    className="text-right tabular-nums font-medium"
+                                    style={
+                                      s.qty < 0
+                                        ? { color: "var(--destructive)" }
+                                        : undefined
+                                    }
+                                  >
+                                    {s.qty.toLocaleString("de-DE")}
+                                  </span>
+                                  <span
+                                    className="text-right tabular-nums"
+                                    style={
+                                      s.deltaToday === 0
+                                        ? { color: "var(--muted-foreground)" }
+                                        : s.deltaToday < 0
+                                          ? { color: "var(--destructive)" }
+                                          : { color: "var(--brand)" }
+                                    }
+                                  >
+                                    {s.deltaToday === 0
+                                      ? "—"
+                                      : `${s.deltaToday > 0 ? "+" : ""}${s.deltaToday}`}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    {recent.length === 0 ? null : (
+                      <>
+                        {recentWithAfter.length > 0 && (
+                          <div>
+                            <div className="mb-1 grid grid-cols-[40px_1fr_50px_50px] gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                              <span>Zeit</span>
+                              <span>Bewegung</span>
+                              <span className="text-right">Δ</span>
+                              <span className="text-right">Bestand</span>
+                            </div>
+                            <ul className="space-y-1.5">
+                              {recentWithAfter.map(({ m, after, dForLoc }) => {
+                                const desc = describeMovement(m);
+                                return (
+                                  <li
+                                    key={m.id}
+                                    className="flex flex-col gap-0.5"
+                                  >
+                                    <div className="grid grid-cols-[40px_1fr_50px_50px] items-center gap-2">
+                                      <span className="text-muted-foreground tabular-nums">
+                                        {new Intl.DateTimeFormat("de-DE", {
+                                          timeStyle: "short",
+                                        }).format(new Date(m.occurred_at))}
+                                      </span>
+                                      <span className="flex items-center gap-1.5 truncate">
+                                        <Badge
+                                          variant="outline"
+                                          className="text-[9px]"
+                                        >
+                                          {desc.label}
+                                        </Badge>
+                                        <span className="truncate">
+                                          {productMap.get(m.r2o_product_id) ??
+                                            `#${m.r2o_product_id}`}
+                                        </span>
+                                      </span>
+                                      <span
+                                        className="text-right tabular-nums font-medium"
+                                        style={{
+                                          color:
+                                            dForLoc < 0
+                                              ? "var(--destructive)"
+                                              : "var(--brand)",
+                                        }}
+                                      >
+                                        {dForLoc > 0 ? "+" : ""}
+                                        {dForLoc}
+                                      </span>
+                                      <span className="text-right tabular-nums text-muted-foreground">
+                                        {after.toLocaleString("de-DE")}
+                                      </span>
+                                    </div>
+                                    {desc.detail && (
+                                      <span className="pl-12 text-[10px] text-muted-foreground">
+                                        {desc.detail}
+                                      </span>
+                                    )}
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            {(movementsByLoc[l.id] ?? []).length > recent.length && (
+                              <p className="mt-2 text-[10px] text-muted-foreground">
+                                + {(movementsByLoc[l.id] ?? []).length - recent.length}{" "}
+                                weitere · siehe{" "}
+                                <Link
+                                  href="/inventory"
+                                  className="underline"
+                                  style={{ color: "var(--brand)" }}
+                                >
+                                  Lager
+                                </Link>
+                              </p>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </details>
               );
             })}
           </div>
