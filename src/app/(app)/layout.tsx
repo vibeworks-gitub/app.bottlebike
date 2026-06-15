@@ -11,6 +11,7 @@ const NAV: Array<{ href: string; label: string; badge?: string; group?: string }
   { href: "/products", label: "Produkte" },
   { href: "/suppliers", label: "Lieferanten" },
   { href: "/inventory", label: "Lager", group: "Inventar" },
+  { href: "/inventory/shifts", label: "Schichten", group: "Inventar" },
   { href: "/inventory/purchases", label: "Wareneingang", group: "Inventar" },
   { href: "/inventory/transfers/new", label: "Bike beladen", group: "Inventar" },
   { href: "/inventory/locations", label: "Standorte", group: "Inventar" },

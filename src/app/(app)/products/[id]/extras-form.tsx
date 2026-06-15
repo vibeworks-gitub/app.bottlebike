@@ -36,6 +36,9 @@ export function ExtrasForm({
   );
   // Input ist als "netto" gelabeled — cost_includes_vat = false
   const [costIncludesVat] = useState<boolean>(initial?.cost_includes_vat ?? false);
+  const [stockBehavior, setStockBehavior] = useState<
+    "sale" | "retour_for" | "no_stock_effect"
+  >(initial?.stock_behavior ?? "sale");
 
   const margin = useMemo(() => {
     const cp = Number(costPrice.replace(",", "."));
@@ -183,6 +186,58 @@ export function ExtrasForm({
           </p>
         </div>
         <div className="flex flex-col gap-1.5" />
+
+        <div className="sm:col-span-2 flex flex-col gap-1.5">
+          <Label htmlFor="stock_behavior">Lager-Verhalten beim Verkauf</Label>
+          <select
+            id="stock_behavior"
+            name="stock_behavior"
+            value={stockBehavior}
+            onChange={(e) =>
+              setStockBehavior(e.target.value as typeof stockBehavior)
+            }
+            className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
+          >
+            <option value="sale">Normaler Verkauf (Bestand runter)</option>
+            <option value="retour_for">
+              Pfand-Retour (Bestand des verknüpften Produkts steigt)
+            </option>
+            <option value="no_stock_effect">
+              Kein Bestands-Effekt (z.B. Rabatt)
+            </option>
+          </select>
+          <p className="text-xs text-muted-foreground">
+            Standard: Verkauf zieht Bestand vom Bike ab. Retour-Produkte wie
+            „Pfandflasche retour" buchen stattdessen den verknüpften Artikel
+            wieder rauf.
+          </p>
+        </div>
+
+        {stockBehavior === "retour_for" && (
+          <div className="sm:col-span-2 flex flex-col gap-1.5">
+            <Label htmlFor="retour_for_product_id">
+              Retour für welches Produkt?
+            </Label>
+            <select
+              id="retour_for_product_id"
+              name="retour_for_product_id"
+              defaultValue={initial?.retour_for_product_id?.toString() ?? ""}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
+            >
+              <option value="">— bitte wählen —</option>
+              {allProducts.map((p) => (
+                <option key={p.product_id} value={p.product_id}>
+                  {p.product_name ?? `#${p.product_id}`}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Beispiel: „Pfandflasche retour" → Retour für „Pfandflasche". Bei
+              jedem Verkauf wird die Pfandflasche-Menge wieder dem Bike-Bestand
+              gutgeschrieben.
+            </p>
+          </div>
+        )}
 
         <div className="sm:col-span-2 flex flex-col gap-1.5">
           <Label htmlFor="deposit_product_id">Pfand-Artikel</Label>

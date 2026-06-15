@@ -93,6 +93,8 @@ export type ProductExtra = {
   last_purchase_price: number | null;
   deposit_product_id: number | null;
   shelf_life_days: number | null;
+  stock_behavior: "sale" | "retour_for" | "no_stock_effect";
+  retour_for_product_id: number | null;
   created_at: string;
   updated_at: string;
 };
@@ -268,6 +270,40 @@ export type StockThreshold = {
   location_id: string;
   min_quantity: number;
   updated_at: string;
+};
+
+export type ShiftStatus = "open" | "closed";
+
+export type Shift = {
+  id: string;
+  owner_id: string;
+  location_id: string;
+  r2o_user_id: number | null;
+  cash_register_id: string | null;
+  started_at: string;
+  ended_at: string | null;
+  start_cash_eur: number | null;
+  end_cash_eur: number | null;
+  start_notes: string | null;
+  end_notes: string | null;
+  status: ShiftStatus;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ShiftCountType = "start" | "end" | "mid";
+
+export type ShiftCount = {
+  id: string;
+  owner_id: string;
+  shift_id: string;
+  r2o_product_id: number;
+  count_type: ShiftCountType;
+  counted_qty: number;
+  counted_at: string;
+  counted_by: string | null;
+  notes: string | null;
 };
 
 export type UnbookedSaleReason =

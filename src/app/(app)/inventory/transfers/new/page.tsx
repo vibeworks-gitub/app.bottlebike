@@ -4,24 +4,51 @@ import { buttonVariants } from "@/components/ui/button";
 import { TransferForm, type ProductOption } from "../transfer-form";
 import type { Location, StockByLocation } from "@/lib/types/database";
 
+type R2oProductRow = {
+  product_id: number;
+  product_name: string | null;
+  product_itemnumber: string | null;
+};
+
+type ExtraRow = {
+  r2o_product_id: number;
+  deposit_product_id: number | null;
+};
+
 export default async function NewTransferPage() {
   const supabase = await createClient();
-  const [{ data: locs }, { data: prods }, { data: stock }] = await Promise.all([
-    supabase
-      .from("bb_locations")
-      .select("*")
-      .eq("active", true)
-      .order("type", { ascending: true })
-      .order("name", { ascending: true })
-      .returns<Location[]>(),
-    supabase
-      .from("r2o_products")
-      .select("product_id, product_name, product_itemnumber")
-      .eq("product_active", true)
-      .order("product_name", { ascending: true })
-      .returns<ProductOption[]>(),
-    supabase.from("bb_stock_by_location").select("*").returns<StockByLocation[]>(),
-  ]);
+  const [{ data: locs }, { data: prods }, { data: stock }, { data: extras }] =
+    await Promise.all([
+      supabase
+        .from("bb_locations")
+        .select("*")
+        .eq("active", true)
+        .order("type", { ascending: true })
+        .order("name", { ascending: true })
+        .returns<Location[]>(),
+      supabase
+        .from("r2o_products")
+        .select("product_id, product_name, product_itemnumber")
+        .eq("product_active", true)
+        .order("product_name", { ascending: true })
+        .returns<R2oProductRow[]>(),
+      supabase.from("bb_stock_by_location").select("*").returns<StockByLocation[]>(),
+      supabase
+        .from("bb_product_extras")
+        .select("r2o_product_id, deposit_product_id")
+        .returns<ExtraRow[]>(),
+    ]);
+
+  const depositByProductId = new Map<number, number | null>();
+  for (const e of extras ?? [])
+    depositByProductId.set(e.r2o_product_id, e.deposit_product_id);
+
+  const enrichedProducts: ProductOption[] = (prods ?? []).map((p) => ({
+    product_id: p.product_id,
+    product_name: p.product_name,
+    product_itemnumber: p.product_itemnumber,
+    deposit_product_id: depositByProductId.get(p.product_id) ?? null,
+  }));
 
   if (!locs || locs.length < 2) {
     return (
@@ -75,7 +102,7 @@ export default async function NewTransferPage() {
       </header>
       <TransferForm
         locations={locs}
-        products={prods ?? []}
+        products={enrichedProducts}
         stockByLocation={stockMap}
       />
     </div>

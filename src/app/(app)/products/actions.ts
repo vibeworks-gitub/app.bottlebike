@@ -52,6 +52,14 @@ export async function saveProductExtras(
       const v = num(formData.get("shelf_life_days"));
       return v != null ? Math.trunc(v) : null;
     })(),
+    stock_behavior: (() => {
+      const v = String(formData.get("stock_behavior") ?? "sale");
+      return v === "retour_for" || v === "no_stock_effect" ? v : "sale";
+    })(),
+    retour_for_product_id: (() => {
+      const v = num(formData.get("retour_for_product_id"));
+      return v != null ? Math.trunc(v) : null;
+    })(),
   };
 
   const { error } = await supabase
