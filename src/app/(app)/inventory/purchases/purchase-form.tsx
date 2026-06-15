@@ -597,18 +597,7 @@ export function PurchaseForm({
                   {formatEUR(totalNet)}
                 </span>
               </div>
-              {[...vatBuckets.entries()]
-                .sort(([a], [b]) => a - b)
-                .map(([rate, v]) => (
-                  <div
-                    key={rate}
-                    className="flex items-center gap-6 text-xs tabular-nums text-muted-foreground"
-                  >
-                    <span>+ MwSt {rate}%</span>
-                    <span className="min-w-24 text-right">{formatEUR(v.vat)}</span>
-                  </div>
-                ))}
-              <div className="mt-1 flex items-center gap-6 border-t border-border pt-1 tabular-nums">
+              <div className="flex items-center gap-6 tabular-nums">
                 <span className="text-xs font-semibold uppercase tracking-wider">
                   Gesamt brutto
                 </span>
@@ -619,6 +608,23 @@ export function PurchaseForm({
                   {formatEUR(totalGross)}
                 </span>
               </div>
+              {vatBuckets.size > 0 && (
+                <div className="mt-1 border-t border-border pt-1">
+                  {[...vatBuckets.entries()]
+                    .sort(([a], [b]) => a - b)
+                    .map(([rate, v]) => (
+                      <div
+                        key={rate}
+                        className="flex items-center gap-6 text-xs tabular-nums text-muted-foreground"
+                      >
+                        <span>davon MwSt {rate}%</span>
+                        <span className="min-w-24 text-right">
+                          {formatEUR(v.vat)}
+                        </span>
+                      </div>
+                    ))}
+                </div>
+              )}
             </div>
           </div>
           <input type="hidden" name="total_gross" value={totalGross || ""} />
