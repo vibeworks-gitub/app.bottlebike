@@ -7,8 +7,18 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatEUR } from "@/lib/format";
-import type { Location, Supplier } from "@/lib/types/database";
+import type {
+  Location,
+  Purchase,
+  PurchaseItem,
+  Supplier,
+} from "@/lib/types/database";
 import { createPurchase, type PurchaseState } from "./actions";
+
+type FormAction = (
+  state: PurchaseState,
+  formData: FormData,
+) => Promise<PurchaseState> | PurchaseState;
 
 export type ProductOption = {
   product_id: number;
@@ -68,18 +78,68 @@ export function PurchaseForm({
   warehouses,
   suppliers,
   products,
+  initial,
+  action,
+  mode = "create",
 }: {
   warehouses: Location[];
   suppliers: Supplier[];
   products: ProductOption[];
+  initial?: { purchase: Purchase; items: PurchaseItem[] };
+  action?: FormAction;
+  mode?: "create" | "edit";
 }) {
+  const productByIdInit = new Map<number, ProductOption>();
+  for (const p of products) productByIdInit.set(p.product_id, p);
+
+  function rowsFromInitial(): Row[] {
+    if (!initial || initial.items.length === 0) return [newRow()];
+    return initial.items
+      .slice()
+      .sort((a, b) => a.sort_order - b.sort_order)
+      .map((it) => {
+        const opt = productByIdInit.get(it.r2o_product_id);
+        const pkgSize = opt?.default_quantity ?? 0;
+        const qty = Number(it.quantity);
+        let packages = "";
+        let singles = String(qty).replace(".", ",");
+        if (pkgSize > 0 && qty > 0 && qty % pkgSize === 0) {
+          packages = String(qty / pkgSize);
+          singles = "";
+        }
+        return {
+          uid: Math.random().toString(36).slice(2),
+          product_id: String(it.r2o_product_id),
+          packages,
+          singles,
+          unit_cost_net:
+            it.unit_cost_net != null
+              ? String(it.unit_cost_net).replace(".", ",")
+              : "",
+          expiry_date: it.expiry_date ?? "",
+          notes: it.notes ?? "",
+          dirty: {
+            packages: !!packages,
+            singles: !!singles,
+            unit_cost_net: it.unit_cost_net != null,
+            expiry_date: !!it.expiry_date,
+            notes: !!it.notes,
+          },
+        };
+      });
+  }
+
   const [state, formAction, pending] = useActionState<PurchaseState, FormData>(
-    createPurchase,
+    action ?? createPurchase,
     {},
   );
-  const [rows, setRows] = useState<Row[]>([newRow()]);
-  const [supplierId, setSupplierId] = useState<string>("");
-  const [invoiceDate, setInvoiceDate] = useState<string>("");
+  const [rows, setRows] = useState<Row[]>(rowsFromInitial());
+  const [supplierId, setSupplierId] = useState<string>(
+    initial?.purchase.supplier_id ?? "",
+  );
+  const [invoiceDate, setInvoiceDate] = useState<string>(
+    initial?.purchase.invoice_date ?? "",
+  );
 
   function addDays(baseIso: string, days: number): string {
     const d = baseIso ? new Date(baseIso) : new Date();
@@ -304,7 +364,9 @@ export function PurchaseForm({
               id="destination_location_id"
               name="destination_location_id"
               required
-              defaultValue={warehouses[0]?.id ?? ""}
+              defaultValue={
+                initial?.purchase.destination_location_id ?? warehouses[0]?.id ?? ""
+              }
               className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none"
             >
               {warehouses.length === 0 && (
@@ -322,6 +384,7 @@ export function PurchaseForm({
             <Input
               id="invoice_number"
               name="invoice_number"
+              defaultValue={initial?.purchase.invoice_number ?? ""}
               placeholder="z.B. 2026-1234"
             />
           </div>
@@ -341,6 +404,7 @@ export function PurchaseForm({
               id="notes"
               name="notes"
               rows={2}
+              defaultValue={initial?.purchase.notes ?? ""}
               className="rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-none"
             />
           </div>
@@ -532,16 +596,37 @@ export function PurchaseForm({
         </p>
       )}
 
-      <div className="flex gap-2">
-        <Button type="submit" disabled={pending}>
-          {pending ? "Speichern…" : "Wareneingang buchen"}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="submit"
+          name="status"
+          value="booked"
+          disabled={pending}
+        >
+          {pending
+            ? "Speichern…"
+            : mode === "edit"
+              ? "Buchen"
+              : "Wareneingang buchen"}
+        </Button>
+        <Button
+          type="submit"
+          name="status"
+          value="draft"
+          variant="outline"
+          disabled={pending}
+        >
+          {mode === "edit" ? "Entwurf speichern" : "Als Entwurf speichern"}
         </Button>
         <Link
           href="/inventory/purchases"
-          className={buttonVariants({ variant: "outline" })}
+          className={buttonVariants({ variant: "ghost" })}
         >
           Abbrechen
         </Link>
+        <span className="text-xs text-muted-foreground">
+          Entwürfe erscheinen in der Liste, buchen aber noch nicht ins Lager.
+        </span>
       </div>
     </form>
   );

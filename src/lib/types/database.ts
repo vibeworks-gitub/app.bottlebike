@@ -200,6 +200,8 @@ export type RegisterAssignment = {
   created_at: string;
 };
 
+export type PurchaseStatus = "draft" | "booked";
+
 export type Purchase = {
   id: string;
   owner_id: string;
@@ -210,6 +212,7 @@ export type Purchase = {
   total_net: number | null;
   total_gross: number | null;
   notes: string | null;
+  status: PurchaseStatus;
   received_at: string;
   created_by: string | null;
   created_at: string;

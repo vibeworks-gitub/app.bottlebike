@@ -66,6 +66,10 @@ export async function createPurchase(
     0,
   );
 
+  const statusRaw = String(formData.get("status") ?? "booked");
+  const status: "draft" | "booked" =
+    statusRaw === "draft" ? "draft" : "booked";
+
   const { data: purchase, error: pErr } = await supabase
     .from("bb_purchases")
     .insert({
@@ -77,6 +81,7 @@ export async function createPurchase(
       total_net: totalNet || null,
       total_gross: num(formData.get("total_gross")),
       notes: str(formData.get("notes")),
+      status,
       created_by: user.id,
     })
     .select("id")
@@ -103,6 +108,116 @@ export async function createPurchase(
   revalidatePath("/inventory/purchases");
   revalidatePath("/inventory");
   redirect("/inventory/purchases");
+}
+
+export async function updatePurchase(
+  purchaseId: string,
+  _prev: PurchaseState,
+  formData: FormData,
+): Promise<PurchaseState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Nicht eingeloggt." };
+
+  const destination = str(formData.get("destination_location_id"));
+  if (!destination) return { error: "Ziel-Lager fehlt." };
+
+  type ItemDraft = {
+    r2o_product_id: number;
+    quantity: number;
+    unit_cost_net: number | null;
+    expiry_date: string | null;
+    notes: string | null;
+  };
+  const items: ItemDraft[] = [];
+  const indices = new Set<number>();
+  for (const key of formData.keys()) {
+    const m = key.match(/^items\[(\d+)\]\[/);
+    if (m) indices.add(Number(m[1]));
+  }
+  for (const i of [...indices].sort((a, b) => a - b)) {
+    const pid = num(formData.get(`items[${i}][r2o_product_id]`));
+    const qty = num(formData.get(`items[${i}][quantity]`));
+    if (!pid || !qty || qty <= 0) continue;
+    items.push({
+      r2o_product_id: Math.trunc(pid),
+      quantity: qty,
+      unit_cost_net: num(formData.get(`items[${i}][unit_cost_net]`)),
+      expiry_date: str(formData.get(`items[${i}][expiry_date]`)),
+      notes: str(formData.get(`items[${i}][notes]`)),
+    });
+  }
+  if (items.length === 0)
+    return { error: "Mindestens eine Position mit Menge > 0 angeben." };
+
+  const totalNet = items.reduce(
+    (acc, it) => acc + (it.unit_cost_net ?? 0) * it.quantity,
+    0,
+  );
+
+  const statusRaw = String(formData.get("status") ?? "draft");
+  const status: "draft" | "booked" =
+    statusRaw === "booked" ? "booked" : "draft";
+
+  // Header updaten
+  const { error: pErr } = await supabase
+    .from("bb_purchases")
+    .update({
+      supplier_id: str(formData.get("supplier_id")),
+      invoice_number: str(formData.get("invoice_number")),
+      invoice_date: str(formData.get("invoice_date")),
+      destination_location_id: destination,
+      total_net: totalNet || null,
+      total_gross: num(formData.get("total_gross")),
+      notes: str(formData.get("notes")),
+      status,
+    })
+    .eq("id", purchaseId);
+  if (pErr) return { error: pErr.message };
+
+  // Items komplett ersetzen (BEFORE-DELETE-Trigger raeumt alte Movements).
+  const { error: dErr } = await supabase
+    .from("bb_purchase_items")
+    .delete()
+    .eq("purchase_id", purchaseId);
+  if (dErr) return { error: dErr.message };
+
+  const itemRows = items.map((it, idx) => ({
+    owner_id: user.id,
+    purchase_id: purchaseId,
+    r2o_product_id: it.r2o_product_id,
+    quantity: it.quantity,
+    unit_cost_net: it.unit_cost_net,
+    expiry_date: it.expiry_date,
+    notes: it.notes,
+    sort_order: idx,
+  }));
+  const { error: iErr } = await supabase
+    .from("bb_purchase_items")
+    .insert(itemRows);
+  if (iErr) return { error: iErr.message };
+
+  revalidatePath("/inventory/purchases");
+  revalidatePath(`/inventory/purchases/${purchaseId}/edit`);
+  revalidatePath("/inventory");
+  redirect("/inventory/purchases");
+}
+
+export async function bookPurchase(formData: FormData) {
+  const id = String(formData.get("id"));
+  if (!id) return;
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("bb_book_purchase", {
+    p_purchase_id: id,
+  });
+  if (error) {
+    // Fehler werden aktuell nur geloggt — UI lebt mit dem alten Status.
+    console.error("bookPurchase failed:", error.message);
+  }
+  revalidatePath("/inventory/purchases");
+  revalidatePath("/inventory");
 }
 
 export async function deletePurchase(formData: FormData) {

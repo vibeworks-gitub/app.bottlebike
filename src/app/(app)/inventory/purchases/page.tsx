@@ -9,9 +9,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
 import { formatEUR } from "@/lib/format";
 import type { Location, Purchase, Supplier } from "@/lib/types/database";
-import { deletePurchase } from "./actions";
+import { bookPurchase, deletePurchase } from "./actions";
 
 const fmtDate = new Intl.DateTimeFormat("de-DE", { dateStyle: "short" });
 
@@ -87,6 +88,9 @@ export default async function PurchasesPage() {
                   Datum
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                  Status
+                </TableHead>
+                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Rechnung
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
@@ -101,7 +105,7 @@ export default async function PurchasesPage() {
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
                   Brutto
                 </TableHead>
-                <TableHead className="w-24" />
+                <TableHead className="w-40" />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -111,6 +115,22 @@ export default async function PurchasesPage() {
                     {p.invoice_date
                       ? fmtDate.format(new Date(p.invoice_date))
                       : fmtDate.format(new Date(p.received_at))}
+                  </TableCell>
+                  <TableCell>
+                    {p.status === "draft" ? (
+                      <Badge
+                        variant="outline"
+                        style={{
+                          borderColor:
+                            "color-mix(in oklab, var(--brand) 35%, transparent)",
+                          color: "var(--brand)",
+                        }}
+                      >
+                        Entwurf
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary">gebucht</Badge>
+                    )}
                   </TableCell>
                   <TableCell className="text-sm">
                     {p.invoice_number ?? "—"}
@@ -128,19 +148,46 @@ export default async function PurchasesPage() {
                     {formatEUR(p.total_gross)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <form action={deletePurchase}>
-                      <input type="hidden" name="id" value={p.id} />
-                      <button
-                        type="submit"
-                        className={buttonVariants({
-                          variant: "ghost",
-                          size: "sm",
-                        })}
-                        style={{ color: "var(--destructive)" }}
-                      >
-                        Löschen
-                      </button>
-                    </form>
+                    <div className="flex justify-end gap-1">
+                      {p.status === "draft" && (
+                        <>
+                          <Link
+                            href={`/inventory/purchases/${p.id}/edit`}
+                            className={buttonVariants({
+                              variant: "ghost",
+                              size: "sm",
+                            })}
+                          >
+                            Bearbeiten
+                          </Link>
+                          <form action={bookPurchase}>
+                            <input type="hidden" name="id" value={p.id} />
+                            <button
+                              type="submit"
+                              className={buttonVariants({
+                                variant: "outline",
+                                size: "sm",
+                              })}
+                            >
+                              Buchen
+                            </button>
+                          </form>
+                        </>
+                      )}
+                      <form action={deletePurchase}>
+                        <input type="hidden" name="id" value={p.id} />
+                        <button
+                          type="submit"
+                          className={buttonVariants({
+                            variant: "ghost",
+                            size: "sm",
+                          })}
+                          style={{ color: "var(--destructive)" }}
+                        >
+                          Löschen
+                        </button>
+                      </form>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
