@@ -371,16 +371,24 @@ export async function calculateForPeriod(
     tips += Number(i.invoice_total_tip ?? 0);
   }
 
-  // COGS
+  // COGS — nur Kunden-Items (paid invoices, ohne Eigenverbrauch), passt zur
+  // Umsatz-netto-Basis fuer Rohertrag/Marge.
+  const paidInvoiceIdsForCogs = new Set(invs.map((i) => i.invoice_id));
   let cogs = 0;
   let itemsCovered = 0;
+  let itemsCountedTotal = 0;
+  let itemsQtyCustomer = 0;
   for (const it of its) {
-    if (it.product_id != null) {
-      const cp = costByProduct.get(it.product_id);
-      if (cp != null && it.item_quantity != null) {
-        cogs += cp * Number(it.item_quantity);
-        itemsCovered += 1;
-      }
+    if (it.product_id == null) continue;
+    if (!paidInvoiceIdsForCogs.has(it.invoice_id)) continue;
+    if (internalInvoiceIds.has(it.invoice_id)) continue;
+    itemsCountedTotal += 1;
+    const qty = Number(it.item_quantity ?? it.item_qty ?? 0);
+    itemsQtyCustomer += qty;
+    const cp = costByProduct.get(it.product_id);
+    if (cp != null && it.item_quantity != null) {
+      cogs += cp * Number(it.item_quantity);
+      itemsCovered += 1;
     }
   }
 
@@ -648,7 +656,7 @@ export async function calculateForPeriod(
     period,
     invoiceCount: invs.filter((i) => !internalInvoiceIds.has(i.invoice_id))
       .length,
-    itemCount: its.length,
+    itemCount: itemsQtyCustomer,
     revenue,
     revenueNet,
     vat,
@@ -680,6 +688,6 @@ export async function calculateForPeriod(
     internalUse,
     internalUseItems,
     itemsCovered,
-    itemsTotal: its.length,
+    itemsTotal: itemsCountedTotal,
   };
 }
