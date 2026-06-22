@@ -175,7 +175,8 @@ export type CalculationResult = {
     revenue: number;
     isPfand: boolean;
   }>;
-  internalUse: number; // Eigenverbrauch (Umsatz mit Payment-Method 'Eigenverbrauch')
+  internalUse: number; // Eigenverbrauch-"Umsatz" (interner Wert, intern entnommen)
+  internalUseCogs: number; // Eigenverbrauch-Wareneinsatz (echte Lager-Entnahme)
   internalUseItems: Array<{
     invoice_id: number;
     product_id: number;
@@ -371,21 +372,26 @@ export async function calculateForPeriod(
     tips += Number(i.invoice_total_tip ?? 0);
   }
 
-  // COGS — nur Kunden-Items (paid invoices, ohne Eigenverbrauch), passt zur
-  // Umsatz-netto-Basis fuer Rohertrag/Marge.
+  // COGS — Kunden-Items vs Eigenverbrauch-Items getrennt fuehren.
   const paidInvoiceIdsForCogs = new Set(invs.map((i) => i.invoice_id));
   let cogs = 0;
+  let internalUseCogs = 0;
   let itemsCovered = 0;
   let itemsCountedTotal = 0;
   let itemsQtyCustomer = 0;
   for (const it of its) {
     if (it.product_id == null) continue;
     if (!paidInvoiceIdsForCogs.has(it.invoice_id)) continue;
-    if (internalInvoiceIds.has(it.invoice_id)) continue;
+    const cp = costByProduct.get(it.product_id);
+    if (internalInvoiceIds.has(it.invoice_id)) {
+      if (cp != null && it.item_quantity != null) {
+        internalUseCogs += cp * Number(it.item_quantity);
+      }
+      continue;
+    }
     itemsCountedTotal += 1;
     const qty = Number(it.item_quantity ?? it.item_qty ?? 0);
     itemsQtyCustomer += qty;
-    const cp = costByProduct.get(it.product_id);
     if (cp != null && it.item_quantity != null) {
       cogs += cp * Number(it.item_quantity);
       itemsCovered += 1;
@@ -436,7 +442,9 @@ export async function calculateForPeriod(
     fixedCosts += fixedCostDaily(c) * effectivePeriod.days;
   }
 
-  const totalCosts = cogs + staffTotal + fixedCosts;
+  // Eigenverbrauch ist echte Lager-Entnahme ohne Bezahlung → als realer Kostenpunkt
+  // in die Gewinn-Rechnung. Wert = Wareneinsatz der intern entnommenen Items.
+  const totalCosts = cogs + staffTotal + fixedCosts + internalUseCogs;
   const profit = revenueNet - totalCosts;
 
   // Deckungsbeitrag-Ebenen
@@ -686,6 +694,7 @@ export async function calculateForPeriod(
     byProductGroup,
     byProduct,
     internalUse,
+    internalUseCogs,
     internalUseItems,
     itemsCovered,
     itemsTotal: itemsCountedTotal,

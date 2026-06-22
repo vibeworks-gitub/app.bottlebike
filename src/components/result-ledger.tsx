@@ -12,12 +12,6 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
       <LedgerHint>
         {calc.invoiceCount} Belege · {calc.itemCount} Stück
       </LedgerHint>
-      {calc.internalUse > 0 && (
-        <LedgerParenRow
-          label="(Eigenverbrauch — zählt nicht zum Umsatz)"
-          value={calc.internalUse}
-        />
-      )}
       <LedgerRow
         label="abzüglich Mehrwertsteuer"
         value={-calc.vat}
@@ -74,6 +68,14 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
         value={-calc.fixedCosts}
         muted
       />
+      {calc.internalUseCogs > 0 && (
+        <LedgerRow
+          label="abzüglich Eigenverbrauch (Wareneinsatz intern)"
+          value={-calc.internalUseCogs}
+          muted
+          hint="echte Lager-Entnahme ohne Bezahlung"
+        />
+      )}
       <LedgerTotal
         label="Gewinn"
         value={calc.profit}
