@@ -49,9 +49,41 @@ function fullSyncDue(integration: Integration): boolean {
   return viennaHour() === FULL_SYNC_HOUR_VIENNA && ageMs >= FULL_SYNC_MIN_AGE_MS;
 }
 
+const R2O_LOCAL_TZ = "Europe/Vienna";
+
+// R2O liefert manche Timestamps mit TZ-Info (z.B. item_timestamp als "...Z"),
+// andere als naked "YYYY-MM-DD HH:MM:SS" (z.B. invoice_timestamp, invoice_paidDate).
+// Naked-Werte sind Wien-Lokalzeit, NICHT UTC — ohne Korrektur entstehen 1–2h Versatz.
 function toTimestamp(s: string | null | undefined): string | null {
   if (!s) return null;
-  return s.includes("T") ? s : s.replace(" ", "T") + "Z";
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    return s.includes("T") ? s : s.replace(" ", "T");
+  }
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, se] = m.map(Number);
+  const utcAsIfLocal = Date.UTC(y, mo - 1, d, h, mi, se);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: R2O_LOCAL_TZ,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(utcAsIfLocal));
+  const find = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  const viennaShown = Date.UTC(
+    find("year"),
+    find("month") - 1,
+    find("day"),
+    find("hour"),
+    find("minute"),
+    find("second"),
+  );
+  const offsetMs = viennaShown - utcAsIfLocal;
+  return new Date(utcAsIfLocal - offsetMs).toISOString();
 }
 
 function num(v: unknown): number | null {
