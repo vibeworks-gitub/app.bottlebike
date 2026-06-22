@@ -24,7 +24,7 @@ export function TargetCalculator({
 }: {
   monthlyFixedCosts: number;
   monthlyStaffFixed: number;
-  staffCommissionEffectivePct: number; // 0-100, Provision in % vom Umsatz inkl. LNK
+  staffCommissionEffectivePct: number; // 0-100, Provision in % vom Umsatz inkl. Lohnnebenkosten
   currentMarginPct: number;
   currentAvgInvoice: number;
   products: ProductOption[];
@@ -121,7 +121,7 @@ export function TargetCalculator({
               {commissionRate.toFixed(1)}% Provision
             </span>
             <span className="text-muted-foreground">
-              (inkl. LNK aus Personal-Stammdaten — wird automatisch von der
+              (inkl. Lohnnebenkosten aus Personal-Stammdaten — wird automatisch von der
               Marge abgezogen)
             </span>
           </p>
@@ -214,7 +214,7 @@ export function TargetCalculator({
               />
               {commissionRate > 0 && (
                 <CostRow
-                  label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. LNK vom Umsatz)`}
+                  label={`Personal-Provision (${commissionRate.toFixed(1)}% inkl. Lohnnebenkosten vom Umsatz)`}
                   value={formatEUR(monthlyCommissionCost * factor)}
                 />
               )}

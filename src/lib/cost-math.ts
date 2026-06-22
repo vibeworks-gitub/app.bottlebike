@@ -106,6 +106,18 @@ export function staffCostDaily(
 }
 
 export function staffCommission(
+  s: Pick<StaffCost, "commission_pct">,
+  revenue: number,
+): number {
+  if (s.commission_pct == null) return 0;
+  return revenue * (s.commission_pct / 100);
+}
+
+/**
+ * Tatsaechliche Arbeitgeber-Kosten fuer Provision inkl. Lohnnebenkosten.
+ * Wird intern fuer den Personal-&-Fix-Block im Dashboard genutzt.
+ */
+export function staffCommissionWithEmployerCost(
   s: Pick<StaffCost, "commission_pct" | "employer_cost_factor">,
   revenue: number,
 ): number {

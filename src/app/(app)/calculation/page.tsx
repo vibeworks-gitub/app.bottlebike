@@ -4,6 +4,7 @@ import { calculateForPeriod, periodFor } from "@/lib/calculation";
 import { formatEUR, formatPercent } from "@/lib/format";
 import { fixedCostMonthly, staffCostMonthly } from "@/lib/cost-math";
 import { TargetCalculator, type ProductOption } from "./target-calculator";
+import { ResultLedger } from "@/components/result-ledger";
 import type { FixedCost, StaffCost } from "@/lib/types/database";
 
 const PRESETS = [
@@ -24,13 +25,24 @@ type View = (typeof VIEWS)[number]["value"];
 export default async function CalculationPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; view?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    view?: string;
+    from?: string;
+    to?: string;
+  }>;
 }) {
-  const { period: rawPeriod, view: rawView } = await searchParams;
+  const {
+    period: rawPeriod,
+    view: rawView,
+    from: fromParam,
+    to: toParam,
+  } = await searchParams;
   const preset: Preset = (PRESETS.find((p) => p.value === rawPeriod)?.value ??
     "month") as Preset;
   const view: View = (VIEWS.find((v) => v.value === rawView)?.value ??
     "ist") as View;
+  const customPeriod = parseCustomPeriodForCalc(fromParam, toParam);
 
   const supabase = await createClient();
   const {
@@ -45,7 +57,7 @@ export default async function CalculationPage({
     .eq("provider", "ready2order")
     .maybeSingle<{ accounting_start_date: string | null }>();
 
-  const period = periodFor(preset);
+  const period = customPeriod ?? periodFor(preset);
   const r = await calculateForPeriod(
     supabase,
     user!.id,
@@ -216,6 +228,11 @@ export default async function CalculationPage({
       ) : (
         <IstView
           period={preset}
+          view={view}
+          customPeriod={customPeriod}
+          fromParam={fromParam}
+          toParam={toParam}
+          periodLabel={period.label}
           r={r}
           integration={integration}
           margin={margin}
@@ -233,6 +250,11 @@ export default async function CalculationPage({
 
 type IstViewProps = {
   period: Preset;
+  view: View;
+  customPeriod: ReturnType<typeof parseCustomPeriodForCalc>;
+  fromParam: string | undefined;
+  toParam: string | undefined;
+  periodLabel: string;
   r: Awaited<ReturnType<typeof calculateForPeriod>>;
   integration: { accounting_start_date: string | null } | null;
   margin: number;
@@ -246,6 +268,11 @@ type IstViewProps = {
 
 function IstView({
   period: preset,
+  view,
+  customPeriod,
+  fromParam,
+  toParam,
+  periodLabel,
   r,
   integration,
   margin,
@@ -279,7 +306,7 @@ function IstView({
             }`}
           >
             {p.label}
-            {preset === p.value && (
+            {preset === p.value && !customPeriod && (
               <span
                 className="absolute inset-x-0 -bottom-px h-0.5"
                 style={{ backgroundColor: "var(--brand)" }}
@@ -289,27 +316,68 @@ function IstView({
         ))}
       </nav>
 
-      {/* Hauptkarten */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="Umsatz brutto" value={formatEUR(r.revenue)} accent />
-        <Stat label="Wareneinsatz" value={formatEUR(r.cogs)} negative />
-        <Stat
-          label="Rohertrag"
-          value={formatEUR(r.grossProfit)}
-          hint={`${formatPercent(margin * 100)} Marge`}
+      {/* Eigener Zeitraum */}
+      <form
+        action="/calculation"
+        method="get"
+        className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-2 text-sm"
+        style={
+          customPeriod
+            ? {
+                borderColor:
+                  "color-mix(in oklab, var(--brand) 35%, transparent)",
+              }
+            : undefined
+        }
+      >
+        <input type="hidden" name="view" value={view} />
+        <span className="px-1 text-xs text-muted-foreground">
+          Eigener Zeitraum
+        </span>
+        <input
+          type="date"
+          name="from"
+          defaultValue={fromParam ?? ""}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+          aria-label="Von"
         />
-        <Stat label="Personal" value={formatEUR(r.staffTotal)} negative />
-        <Stat label="Fixkosten" value={formatEUR(r.fixedCosts)} negative />
-        <Stat
-          label="Gewinn"
-          value={formatEUR(r.profit)}
-          big
-          accent={r.profit >= 0}
-          warning={r.profit < 0}
-          hint={
-            r.revenue > 0 ? `${formatPercent(profitMargin * 100)} vom Umsatz` : undefined
-          }
+        <span className="text-xs text-muted-foreground">–</span>
+        <input
+          type="date"
+          name="to"
+          defaultValue={toParam ?? ""}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+          aria-label="Bis"
         />
+        <button
+          type="submit"
+          className="rounded-md px-3 py-1 text-xs font-medium"
+          style={{ backgroundColor: "var(--brand)", color: "white" }}
+        >
+          Anwenden
+        </button>
+        {customPeriod && (
+          <Link
+            href={`/calculation?view=${view}`}
+            className="text-xs text-muted-foreground hover:underline"
+          >
+            Zurück zu Presets
+          </Link>
+        )}
+        <span className="ml-auto text-xs text-muted-foreground">
+          Aktiv: {periodLabel}
+        </span>
+      </form>
+
+      {/* Ergebnis-Rechnung */}
+      <section className="rounded-2xl border border-border bg-card p-6">
+        <h2 className="font-heading text-base font-semibold">
+          Ergebnis-Rechnung
+        </h2>
+        <p className="mb-4 text-xs text-muted-foreground">
+          So entsteht der Gewinn — Schritt für Schritt vom Umsatz bis unten.
+        </p>
+        <ResultLedger calc={r} />
       </section>
 
       {/* Detail-Karten */}
@@ -317,7 +385,7 @@ function IstView({
         <Card title="Personal aufgeschlüsselt">
           <Row label="Fix-Anteil (Lohn/Stunden)" value={formatEUR(r.staffFixed)} />
           <Row
-            label="Provision (vom Umsatz)"
+            label="Provision (inkl. Lohnnebenkosten)"
             value={formatEUR(r.staffCommission)}
           />
           <Row label="Summe" value={formatEUR(r.staffTotal)} bold />
@@ -607,4 +675,49 @@ function Row({
       </span>
     </div>
   );
+}
+
+function parseDateInputCalc(s: string | undefined | null): Date | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 0, 0, 0, 0);
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function parseCustomPeriodForCalc(
+  fromStr: string | undefined,
+  toStr: string | undefined,
+):
+  | {
+      from: Date;
+      to: Date;
+      days: number;
+      label: string;
+    }
+  | null {
+  const from = parseDateInputCalc(fromStr);
+  const to = parseDateInputCalc(toStr);
+  if (!from || !to) return null;
+  if (to < from) return null;
+  const toEnd = new Date(to);
+  toEnd.setHours(23, 59, 59, 999);
+  const days = Math.max(
+    1,
+    Math.round((toEnd.getTime() - from.getTime()) / 86400000 + 1),
+  );
+  const fmt = (d: Date) =>
+    `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+  const sameDay =
+    from.getFullYear() === to.getFullYear() &&
+    from.getMonth() === to.getMonth() &&
+    from.getDate() === to.getDate();
+  return {
+    from,
+    to: toEnd,
+    days,
+    label: sameDay
+      ? from.toLocaleDateString("de-DE", { dateStyle: "medium" })
+      : `${fmt(from)} – ${fmt(to)}${to.getFullYear() !== from.getFullYear() ? to.getFullYear() : ""}`,
+  };
 }

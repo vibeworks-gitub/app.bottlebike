@@ -422,8 +422,12 @@ export default async function InventoryOverviewPage() {
                   qty,
                   name: productById.get(Number(pid)) ?? `#${pid}`,
                   min: thresholdMap[l.id]?.[Number(pid)] ?? null,
+                  isPfand: isPfandProduct.has(Number(pid)),
                 }))
-                .sort((a, b) => a.name.localeCompare(b.name));
+                .sort((a, b) => {
+                  if (a.isPfand !== b.isPfand) return a.isPfand ? 1 : -1;
+                  return a.name.localeCompare(b.name);
+                });
               const saleQty = items
                 .filter((i) => !isPfandProduct.has(i.pid))
                 .reduce((s, i) => s + i.qty, 0);

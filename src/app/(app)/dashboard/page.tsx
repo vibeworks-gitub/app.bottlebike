@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Fragment } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,7 @@ import {
 } from "@/components/ui/table";
 import { formatEUR, formatPercent } from "@/lib/format";
 import { calculateForPeriod, periodFor, type Period } from "@/lib/calculation";
+import { ResultLedger } from "@/components/result-ledger";
 import type {
   Location,
   StockByLocation,
@@ -33,8 +35,9 @@ const movementLabel: Record<StockMovement["type"], string> = {
   reversal: "Rückbuchung",
 };
 
+type PeriodKey = "today" | "week" | "month" | "ytd";
 const PERIOD_PRESETS: ReadonlyArray<{
-  key: "today" | "week" | "month" | "ytd";
+  key: PeriodKey;
   label: string;
 }> = [
   { key: "today", label: "Heute" },
@@ -42,6 +45,52 @@ const PERIOD_PRESETS: ReadonlyArray<{
   { key: "month", label: "Monat" },
   { key: "ytd", label: "Jahr" },
 ];
+
+function parseDateInput(s: string | undefined | null): Date | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const d = new Date(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    0,
+    0,
+    0,
+    0,
+  );
+  return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function parseCustomPeriod(
+  fromStr: string | undefined,
+  toStr: string | undefined,
+): Period | null {
+  const from = parseDateInput(fromStr);
+  const to = parseDateInput(toStr);
+  if (!from || !to) return null;
+  if (to < from) return null;
+  const toEnd = new Date(to);
+  toEnd.setHours(23, 59, 59, 999);
+  const days = Math.max(
+    1,
+    Math.round((toEnd.getTime() - from.getTime()) / 86400000 + 1),
+  );
+  const fmt = (d: Date) =>
+    `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;
+  const sameDay =
+    from.getFullYear() === to.getFullYear() &&
+    from.getMonth() === to.getMonth() &&
+    from.getDate() === to.getDate();
+  return {
+    from,
+    to: toEnd,
+    days,
+    label: sameDay
+      ? from.toLocaleDateString("de-DE", { dateStyle: "medium" })
+      : `${fmt(from)} – ${fmt(to)}${to.getFullYear() !== from.getFullYear() ? to.getFullYear() : ""}`,
+  };
+}
 
 type R2oProduct = {
   product_id: number;
@@ -62,11 +111,10 @@ type ItemForTopProducts = {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
 }) {
-  const { period: periodParam } = await searchParams;
-  const periodKey =
-    PERIOD_PRESETS.find((p) => p.key === periodParam)?.key ?? "today";
+  const { period: periodParam, from: fromParam, to: toParam } =
+    await searchParams;
 
   const supabase = await createClient();
   const {
@@ -81,7 +129,14 @@ export default async function DashboardPage({
     .eq("provider", "ready2order")
     .maybeSingle<{ accounting_start_date: string | null }>();
 
-  const period: Period = periodFor(periodKey);
+  // Eigener Zeitraum hat Vorrang vor Preset.
+  const customPeriod = parseCustomPeriod(fromParam, toParam);
+  const periodKey: PeriodKey | "custom" = customPeriod
+    ? "custom"
+    : (PERIOD_PRESETS.find((p) => p.key === periodParam)?.key ?? "today");
+  const period: Period =
+    customPeriod ??
+    periodFor(periodKey === "custom" ? "today" : periodKey);
   const calc = await calculateForPeriod(
     supabase,
     user.id,
@@ -407,62 +462,28 @@ export default async function DashboardPage({
               Umsätze, Mitarbeiter, Lager und Marge — alles auf einen Blick.
             </p>
           </div>
-          <PeriodTabs current={periodKey} />
+          <PeriodTabs
+            current={periodKey}
+            from={fromParam}
+            to={toParam}
+          />
         </div>
       </header>
 
-      {/* Finanz-KPIs */}
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-        <KpiTile
-          label="Umsatz brutto"
-          value={formatEUR(calc.revenue)}
-          sub={`${calc.invoiceCount} Belege · ${calc.itemCount} Stk`}
-          formula="Σ Belege inkl. MwSt"
-          tone="brand"
-        />
-        <KpiTile
-          label="Umsatz netto"
-          value={formatEUR(calc.revenueNet)}
-          sub={`MwSt ${formatEUR(calc.vat)}`}
-          formula="Umsatz brutto − MwSt"
-        />
-        <KpiTile
-          label="Wareneinsatz"
-          value={formatEUR(calc.cogs)}
-          sub={
-            calc.itemsTotal > 0
-              ? `${calc.itemsCovered}/${calc.itemsTotal} Items mit EK`
-              : undefined
-          }
-          formula="Σ Stk × EK netto/Stk"
-        />
-        <KpiTile
-          label="Rohertrag"
-          value={formatEUR(calc.grossProfit)}
-          sub={margePct != null ? `Marge ${formatPercent(margePct)}` : undefined}
-          formula="Umsatz netto − Wareneinsatz"
-          tone={
-            calc.grossProfit < 0 ? "warn" : margePct && margePct > 50 ? "brand" : undefined
-          }
-        />
-        <KpiTile
-          label="Personal & Fix"
-          value={formatEUR(calc.staffTotal + calc.fixedCosts)}
-          sub={`Personal ${formatEUR(calc.staffTotal)} · Fix ${formatEUR(calc.fixedCosts)}`}
-          formula="anteilig auf Zeitraum"
-        />
-        <KpiTile
-          label="Gewinn"
-          value={formatEUR(calc.profit)}
-          sub={
-            profitMarginPct != null
-              ? `${formatPercent(profitMarginPct)}`
-              : undefined
-          }
-          formula="Rohertrag − Personal & Fix"
-          tone={calc.profit < 0 ? "warn" : "brand"}
-        />
-      </section>
+      {/* Ergebnis-Rechnung */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Ergebnis-Rechnung · {period.label}
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            So entsteht der Gewinn — Schritt für Schritt von oben nach unten.
+          </p>
+        </CardHeader>
+        <CardContent>
+          <ResultLedger calc={calc} />
+        </CardContent>
+      </Card>
 
       {/* Mitarbeiter + Top-Produkte */}
       <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -533,8 +554,8 @@ export default async function DashboardPage({
               Zeitraum: {period.label}
             </p>
           </CardHeader>
-          <CardContent className="p-0">
-            {topProducts.length === 0 ? (
+          <CardContent className="max-h-[28rem] overflow-auto p-0">
+            {calc.byProduct.length === 0 ? (
               <p className="px-6 pb-6 text-sm text-muted-foreground">
                 Keine Verkäufe im Zeitraum.
               </p>
@@ -554,11 +575,78 @@ export default async function DashboardPage({
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topProducts.map((p) => (
-                    <TableRow key={p.pid}>
+                  {calc.byProduct.map((p, idx) => {
+                    const prev = calc.byProduct[idx - 1];
+                    const showPfandSeparator =
+                      p.isPfand && (prev == null || !prev.isPfand);
+                    return (
+                      <Fragment key={p.product_id}>
+                        {showPfandSeparator && (
+                          <TableRow className="bg-muted/30 hover:bg-muted/30">
+                            <TableCell
+                              colSpan={3}
+                              className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground"
+                            >
+                              Pfand (Pass-through · gehört zum Hauptartikel)
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        <TableRow
+                          className={p.isPfand ? "text-muted-foreground" : ""}
+                        >
+                          <TableCell className="text-sm">{p.name}</TableCell>
+                          <TableCell className="text-sm tabular-nums text-right">
+                            {p.qty.toLocaleString("de-DE")}
+                          </TableCell>
+                          <TableCell className="text-sm tabular-nums text-right font-medium">
+                            {formatEUR(p.revenue)}
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Zahlungsarten + Produktgruppen */}
+      <section className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Zahlungsarten</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Zeitraum: {period.label} · ohne Eigenverbrauch
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {calc.byPayment.length === 0 ? (
+              <p className="px-6 pb-6 text-sm text-muted-foreground">
+                Keine Zahlungen im Zeitraum.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                      Zahlungsart
+                    </TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
+                      Belege
+                    </TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
+                      Umsatz
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {calc.byPayment.map((p) => (
+                    <TableRow key={p.payment_id ?? "null"}>
                       <TableCell className="text-sm">{p.name}</TableCell>
                       <TableCell className="text-sm tabular-nums text-right">
-                        {p.qty.toLocaleString("de-DE")}
+                        {p.count.toLocaleString("de-DE")}
                       </TableCell>
                       <TableCell className="text-sm tabular-nums text-right font-medium">
                         {formatEUR(p.revenue)}
@@ -570,7 +658,116 @@ export default async function DashboardPage({
             )}
           </CardContent>
         </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Produktgruppen</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Zeitraum: {period.label} · ohne Eigenverbrauch
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            {calc.byProductGroup.length === 0 ? (
+              <p className="px-6 pb-6 text-sm text-muted-foreground">
+                Keine Verkäufe im Zeitraum.
+              </p>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/40 hover:bg-muted/40">
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                      Warengruppe
+                    </TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
+                      Stk
+                    </TableHead>
+                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
+                      Umsatz
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {calc.byProductGroup.map((g) => (
+                    <TableRow
+                      key={g.group_id ?? "null"}
+                      className={g.isPfand ? "text-muted-foreground" : ""}
+                    >
+                      <TableCell className="text-sm">
+                        {g.name}
+                        {g.isPfand && (
+                          <span className="ml-2 text-[10px] uppercase tracking-wider">
+                            Pass-through
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-sm tabular-nums text-right">
+                        {g.qty.toLocaleString("de-DE")}
+                      </TableCell>
+                      <TableCell className="text-sm tabular-nums text-right font-medium">
+                        {formatEUR(g.revenue)}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </CardContent>
+        </Card>
       </section>
+
+      {calc.internalUseItems.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Eigenverbrauch</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Intern entnommene Ware ({formatEUR(calc.internalUse)} ·{" "}
+              {calc.internalUseItems.length} Position
+              {calc.internalUseItems.length === 1 ? "" : "en"}) ·{" "}
+              <strong>zählt nicht zur Verkaufsstatistik</strong>
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-muted/40 hover:bg-muted/40">
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                    Datum / Uhrzeit
+                  </TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                    Produkt
+                  </TableHead>
+                  <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
+                    Mitarbeiter
+                  </TableHead>
+                  <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                    Menge
+                  </TableHead>
+                  <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                    Wert (brutto)
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {calc.internalUseItems.map((u, idx) => (
+                  <TableRow key={`${u.invoice_id}-${idx}`}>
+                    <TableCell className="text-sm whitespace-nowrap">
+                      {u.timestamp ? dt.format(new Date(u.timestamp)) : "—"}
+                    </TableCell>
+                    <TableCell className="text-sm">{u.product_name}</TableCell>
+                    <TableCell className="text-sm">{u.user_name}</TableCell>
+                    <TableCell className="text-right text-sm tabular-nums">
+                      {u.qty.toLocaleString("de-DE")}
+                    </TableCell>
+                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
+                      ({formatEUR(u.revenue)})
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Lagerbestand kompakt */}
       <section>
@@ -729,7 +926,10 @@ export default async function DashboardPage({
                           deltaToday: delta.get(Number(pid)) ?? 0,
                         }))
                         .filter((s) => s.qty !== 0 || s.deltaToday !== 0)
-                        .sort((a, b) => a.name.localeCompare(b.name));
+                        .sort((a, b) => {
+                          if (a.isPfand !== b.isPfand) return a.isPfand ? 1 : -1;
+                          return a.name.localeCompare(b.name);
+                        });
                       return (
                         <div className="mb-3">
                           <div className="mb-1 grid grid-cols-[1fr_50px_50px] gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -890,7 +1090,7 @@ export default async function DashboardPage({
             Alle →
           </Link>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent className="max-h-[28rem] overflow-auto p-0">
           {(movements ?? []).length === 0 ? (
             <p className="px-6 pb-6 text-sm text-muted-foreground">
               Noch keine Bewegungen.
@@ -955,29 +1155,76 @@ export default async function DashboardPage({
   );
 }
 
-function PeriodTabs({ current }: { current: string }) {
+function PeriodTabs({
+  current,
+  from,
+  to,
+}: {
+  current: string;
+  from?: string;
+  to?: string;
+}) {
+  const customActive = current === "custom";
   return (
-    <div className="flex rounded-lg border border-border bg-card p-1 text-sm">
-      {PERIOD_PRESETS.map((p) => {
-        const active = p.key === current;
-        return (
-          <Link
-            key={p.key}
-            href={`/dashboard?period=${p.key}`}
-            className={`rounded-md px-3 py-1.5 font-medium transition-colors ${active ? "" : "text-muted-foreground hover:text-foreground"}`}
-            style={
-              active
-                ? {
-                    backgroundColor: "var(--brand)",
-                    color: "white",
-                  }
-                : undefined
-            }
-          >
-            {p.label}
-          </Link>
-        );
-      })}
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex rounded-lg border border-border bg-card p-1 text-sm">
+        {PERIOD_PRESETS.map((p) => {
+          const active = p.key === current;
+          return (
+            <Link
+              key={p.key}
+              href={`/dashboard?period=${p.key}`}
+              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${active ? "" : "text-muted-foreground hover:text-foreground"}`}
+              style={
+                active
+                  ? { backgroundColor: "var(--brand)", color: "white" }
+                  : undefined
+              }
+            >
+              {p.label}
+            </Link>
+          );
+        })}
+      </div>
+      <form
+        action="/dashboard"
+        method="get"
+        className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 text-sm"
+        style={
+          customActive
+            ? {
+                borderColor:
+                  "color-mix(in oklab, var(--brand) 35%, transparent)",
+              }
+            : undefined
+        }
+      >
+        <span className="px-2 text-xs text-muted-foreground">
+          Eigener Zeitraum
+        </span>
+        <input
+          type="date"
+          name="from"
+          defaultValue={from ?? ""}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+          aria-label="Von"
+        />
+        <span className="text-xs text-muted-foreground">–</span>
+        <input
+          type="date"
+          name="to"
+          defaultValue={to ?? ""}
+          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
+          aria-label="Bis"
+        />
+        <button
+          type="submit"
+          className="rounded-md px-3 py-1 text-xs font-medium"
+          style={{ backgroundColor: "var(--brand)", color: "white" }}
+        >
+          Anwenden
+        </button>
+      </form>
     </div>
   );
 }

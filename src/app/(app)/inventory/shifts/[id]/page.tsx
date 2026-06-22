@@ -42,6 +42,7 @@ type R2oUser = {
 type R2oProduct = {
   product_id: number;
   product_name: string | null;
+  productgroup_id: number | null;
 };
 type R2oItem = {
   invoice_id: number;
@@ -144,7 +145,7 @@ export default async function ShiftDetailPage({
       .returns<StockMovement[]>(),
     supabase
       .from("r2o_products")
-      .select("product_id, product_name")
+      .select("product_id, product_name, productgroup_id")
       .returns<R2oProduct[]>(),
     supabase
       .from("r2o_users")
@@ -166,6 +167,24 @@ export default async function ShiftDetailPage({
           .maybeSingle<StaffCost>()
       : Promise.resolve({ data: null as StaffCost | null }),
   ]);
+
+  // Pfand-Erkennung (Warengruppen-Name enthaelt "pfand")
+  const { data: groups } = await supabase
+    .from("r2o_productgroups")
+    .select("productgroup_id, productgroup_name")
+    .returns<{ productgroup_id: number; productgroup_name: string | null }[]>();
+  const pfandGroupIds = new Set<number>();
+  for (const g of groups ?? []) {
+    if ((g.productgroup_name ?? "").toLowerCase().includes("pfand")) {
+      pfandGroupIds.add(g.productgroup_id);
+    }
+  }
+  const isPfandProduct = new Set<number>();
+  for (const p of products ?? []) {
+    if (p.productgroup_id != null && pfandGroupIds.has(p.productgroup_id)) {
+      isPfandProduct.add(p.product_id);
+    }
+  }
 
   const productMap = new Map<number, string>();
   for (const p of products ?? [])
@@ -273,6 +292,7 @@ export default async function ShiftDetailPage({
       return {
         pid,
         name: productMap.get(pid) ?? `#${pid}`,
+        isPfand: isPfandProduct.has(pid),
         startQ,
         sold,
         retour,
@@ -283,7 +303,10 @@ export default async function ShiftDetailPage({
         diff,
       };
     })
-    .sort((a, b) => a.name.localeCompare(b.name));
+    .sort((a, b) => {
+      if (a.isPfand !== b.isPfand) return a.isPfand ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
 
   const isOpen = shift.status === "open";
   const cashDiff =
