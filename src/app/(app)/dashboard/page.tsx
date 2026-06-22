@@ -74,7 +74,7 @@ function parseCustomPeriod(
   toEnd.setHours(23, 59, 59, 999);
   const days = Math.max(
     1,
-    Math.round((toEnd.getTime() - from.getTime()) / 86400000 + 1),
+    Math.floor((toEnd.getTime() - from.getTime()) / 86400000) + 1,
   );
   const fmt = (d: Date) =>
     `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.`;

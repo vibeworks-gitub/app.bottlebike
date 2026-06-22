@@ -61,7 +61,7 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
       <LedgerSubtotal
         label="Deckungsbeitrag (inkl. Lohnnebenkosten)"
         value={calc.contributionMargin}
-        hint={`${formatEUR(calc.contributionMarginDaily)} pro Tag (${calc.period.days} Tage im Zeitraum)`}
+        hint={`${formatEUR(calc.contributionMarginDaily)} pro Tag (${calc.period.days} ${calc.period.days === 1 ? "Tag" : "Tage"} im Zeitraum)`}
         accent
       />
       <LedgerRow
