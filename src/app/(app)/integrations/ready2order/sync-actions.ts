@@ -22,10 +22,45 @@ async function getOwnerAndToken(): Promise<{ ownerId: string; token: string }> {
   return { ownerId: user.id, token: integration.account_token };
 }
 
+// r2o liefert Timestamps in zwei Formaten:
+//   1) "2026-06-21T16:45:50.000000Z" — bereits in UTC mit Z
+//   2) "2026-06-21 18:45:50"          — naked, ist tatsächlich Europe/Vienna Local
+// Wir konvertieren beide Varianten zu echter UTC-ISO.
+const R2O_LOCAL_TZ = "Europe/Vienna";
 function toTimestamp(s: string | null | undefined): string | null {
   if (!s) return null;
-  // ready2order returns "YYYY-MM-DD HH:MM:SS" without timezone — assume UTC
-  return s.includes("T") ? s : s.replace(" ", "T") + "Z";
+  // Bereits mit TZ-Info: unverändert lassen
+  if (/Z$|[+-]\d{2}:?\d{2}$/.test(s)) {
+    return s.includes("T") ? s : s.replace(" ", "T");
+  }
+  // Naked "YYYY-MM-DD HH:MM:SS" → als Vienna-Local interpretieren, dann zu UTC
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, se] = m.map(Number);
+  // Trick: bilde Datum als ob es UTC waere, frage Intl nach Vienna-Anzeige,
+  // ziehe die Differenz ab → echte UTC.
+  const utcAsIfLocal = Date.UTC(y, mo - 1, d, h, mi, se);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: R2O_LOCAL_TZ,
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).formatToParts(new Date(utcAsIfLocal));
+  const find = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? "0");
+  const viennaShown = Date.UTC(
+    find("year"),
+    find("month") - 1,
+    find("day"),
+    find("hour"),
+    find("minute"),
+    find("second"),
+  );
+  const offsetMs = viennaShown - utcAsIfLocal;
+  return new Date(utcAsIfLocal - offsetMs).toISOString();
 }
 
 type R2oProduct = {

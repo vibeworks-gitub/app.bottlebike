@@ -203,8 +203,10 @@ export default async function DashboardPage({
     supabase
       .from("bb_stock_movements")
       .select("*")
+      .gte("occurred_at", period.from.toISOString())
+      .lte("occurred_at", period.to.toISOString())
       .order("occurred_at", { ascending: false })
-      .limit(10)
+      .limit(500)
       .returns<StockMovement[]>(),
   ]);
 
@@ -1077,9 +1079,13 @@ export default async function DashboardPage({
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <div>
-            <CardTitle className="text-base">Letzte Bewegungen</CardTitle>
+            <CardTitle className="text-base">
+              Bewegungen · {period.label}
+            </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Wareneingänge, Umbuchungen, Verkäufe und Korrekturen
+              Wareneingänge, Umbuchungen, Verkäufe und Korrekturen ·{" "}
+              {(movements ?? []).length} Einträge
+              {(movements ?? []).length >= 500 && " (limit 500)"}
             </p>
           </div>
           <Link
