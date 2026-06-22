@@ -1,22 +1,28 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 
-const W = 680;
-const H = 440;
+const VARIANTS = {
+  blue: "/logo-blue.svg",
+  black: "/logo-black.svg",
+  white: "/logo-white.svg",
+} as const;
+
+export type LogoVariant = keyof typeof VARIANTS;
 
 export function Logo({
   size = 56,
+  variant = "blue",
   className,
 }: {
   size?: number;
+  variant?: LogoVariant;
   className?: string;
 }) {
-  const width = Math.round((size * W) / H);
   return (
     <Image
-      src="/logo.svg"
+      src={VARIANTS[variant]}
       alt="bottle bike"
-      width={width}
+      width={size}
       height={size}
       priority
       className={cn("select-none", className)}

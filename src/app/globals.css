@@ -50,8 +50,8 @@
 }
 
 :root {
-  --brand: oklch(0.51 0.13 245);
-  --brand-soft: oklch(0.93 0.04 245);
+  --brand: #0284C7;
+  --brand-soft: #e0f2fe;
 
   --background: oklch(0.99 0.004 240);
   --foreground: oklch(0.2 0.03 240);
@@ -88,8 +88,8 @@
 }
 
 .dark {
-  --brand: oklch(0.7 0.14 245);
-  --brand-soft: oklch(0.32 0.08 245);
+  --brand: #38bdf8;
+  --brand-soft: #0c4a6e;
 
   --background: oklch(0.16 0.018 240);
   --foreground: oklch(0.96 0.01 240);
