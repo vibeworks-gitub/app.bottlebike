@@ -18,10 +18,12 @@ export function LocationForm({
   action,
   initial,
   submitLabel,
+  otherLocations = [],
 }: {
   action: Action;
   initial?: Location;
   submitLabel: string;
+  otherLocations?: Array<{ id: string; name: string }>;
 }) {
   const [state, formAction, pending] = useActionState<LocationState, FormData>(
     action,
@@ -56,6 +58,24 @@ export function LocationForm({
             >
               <option value="warehouse">Lager</option>
               <option value="bike">Verkaufsstelle / Bike</option>
+            </select>
+          </div>
+          <div className="md:col-span-2 flex flex-col gap-1.5">
+            <Label htmlFor="restock_source_location_id">
+              Nachschub-Quelle (Haupt-Lager)
+            </Label>
+            <select
+              id="restock_source_location_id"
+              name="restock_source_location_id"
+              defaultValue={initial?.restock_source_location_id ?? ""}
+              className="h-9 rounded-md border border-input bg-transparent px-3 py-1 text-sm outline-none"
+            >
+              <option value="">—</option>
+              {otherLocations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="md:col-span-2 flex flex-col gap-1.5">

@@ -35,6 +35,7 @@ export async function createLocation(
     name,
     type,
     notes: str(formData.get("notes")),
+    restock_source_location_id: str(formData.get("restock_source_location_id")),
   });
   if (error) return { error: error.message };
   revalidatePath("/inventory/locations");
@@ -61,6 +62,7 @@ export async function updateLocation(
       type,
       notes: str(formData.get("notes")),
       active: formData.get("active") === "on",
+      restock_source_location_id: str(formData.get("restock_source_location_id")),
     })
     .eq("id", id);
   if (error) return { error: error.message };

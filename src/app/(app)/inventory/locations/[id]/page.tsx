@@ -19,6 +19,13 @@ export default async function EditLocationPage({
 
   if (!data) notFound();
 
+  const { data: otherLocations } = await supabase
+    .from("bb_locations")
+    .select("id, name")
+    .eq("owner_id", data.owner_id)
+    .neq("id", data.id)
+    .order("name");
+
   const action = updateLocation.bind(null, data.id);
 
   return (
@@ -36,6 +43,7 @@ export default async function EditLocationPage({
         action={action}
         initial={data}
         submitLabel="Speichern"
+        otherLocations={otherLocations ?? []}
       />
     </div>
   );
