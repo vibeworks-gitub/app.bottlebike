@@ -14,6 +14,9 @@ returns text language sql stable security definer set search_path = public, pg_t
   select role from public.profiles where id = auth.uid();
 $$;
 
+-- Legacy permissive profiles policy (qual: true) entfernen — neuer profiles_self_select greift sonst nicht.
+drop policy if exists profiles_select_authenticated on public.profiles;
+
 drop policy if exists profiles_self_select on public.profiles;
 create policy profiles_self_select on public.profiles
   for select using (
@@ -147,3 +150,5 @@ drop policy if exists integrations_owner_write on public.integrations;
 create policy integrations_owner_write on public.integrations
   for all using (public.bb_current_role() = 'owner' and user_id = auth.uid())
   with check (public.bb_current_role() = 'owner' and user_id = auth.uid());
+
+drop policy if exists integrations_owner_modify on public.integrations;
