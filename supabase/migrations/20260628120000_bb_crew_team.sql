@@ -13,6 +13,18 @@ alter table public.profiles
 update public.profiles set owner_id = id where owner_id is null;
 alter table public.profiles alter column owner_id set not null;
 
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conname = 'profiles_owner_fk' and conrelid = 'public.profiles'::regclass
+  ) then
+    alter table public.profiles
+      add constraint profiles_owner_fk
+      foreign key (owner_id) references public.profiles(id) on delete cascade;
+  end if;
+end $$;
+
 create index if not exists profiles_owner_idx on public.profiles(owner_id);
 
 create or replace function public.bb_handle_new_auth_user()
@@ -40,7 +52,7 @@ create trigger bb_on_auth_user_created
   for each row execute function public.bb_handle_new_auth_user();
 
 create or replace function public.bb_touch_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql set search_path = public, pg_temp as $$
 begin new.updated_at = now(); return new; end $$;
 
 drop trigger if exists profiles_updated_at on public.profiles;
