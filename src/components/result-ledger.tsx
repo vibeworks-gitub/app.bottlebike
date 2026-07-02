@@ -1,11 +1,33 @@
 import { formatEUR } from "@/lib/format";
 import type { CalculationResult } from "@/lib/calculation";
 
+// Herleitung von Umsatz brutto zu Gewinn.
+// Reihenfolge (fachlich vorgegeben):
+//   Umsatz brutto → − MwSt → Umsatz netto
+//   → − Personal-Provision (Mitarbeiter-Anteil)
+//   → − Lohnnebenkosten auf Provision
+//   → − Personal-Fix (Löhne/Gehälter)
+//   → − Wareneinsatz (netto)
+//   → − Fixkosten
+//   → − Eigenverbrauch (Wareneinsatz intern)
+//   = Gewinn
 export function ResultLedger({ calc }: { calc: CalculationResult }) {
-  const margePct =
-    calc.revenueNet > 0 ? (calc.grossProfit / calc.revenueNet) * 100 : null;
+  const netAfterStaff =
+    calc.revenueNet -
+    calc.staffCommissionEmployee -
+    calc.staffEmployerExtras -
+    calc.staffFixed;
+  const staffTotalPct =
+    calc.revenueNet > 0
+      ? ((calc.staffCommissionEmployee +
+          calc.staffEmployerExtras +
+          calc.staffFixed) /
+          calc.revenueNet) *
+        100
+      : null;
   const profitPct =
     calc.revenueNet > 0 ? (calc.profit / calc.revenueNet) * 100 : null;
+
   return (
     <div className="mx-auto max-w-2xl text-sm tabular-nums">
       <LedgerRow label="Umsatz brutto" value={calc.revenue} bold />
@@ -31,6 +53,36 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
         }
       />
       <LedgerSubtotal label="Umsatz netto" value={calc.revenueNet} />
+
+      <LedgerRow
+        label="abzüglich Personal-Provision (an die Mitarbeiter)"
+        value={-calc.staffCommissionEmployee}
+        muted
+      />
+      <LedgerRow
+        label="abzüglich Lohnnebenkosten auf Provision"
+        value={-calc.staffEmployerExtras}
+        muted
+      />
+      <LedgerRow
+        label="abzüglich Personal-Fix (Löhne/Gehälter)"
+        value={-calc.staffFixed}
+        muted
+      />
+      <LedgerSubtotal
+        label="nach Personalkosten"
+        value={netAfterStaff}
+        hint={
+          staffTotalPct != null
+            ? `Personal gesamt ${formatEUR(
+                calc.staffCommissionEmployee +
+                  calc.staffEmployerExtras +
+                  calc.staffFixed,
+              )} · ${staffTotalPct.toFixed(1)} % vom Netto`
+            : undefined
+        }
+      />
+
       <LedgerRow
         label="abzüglich Wareneinsatz"
         value={-calc.cogs}
@@ -40,41 +92,6 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
             ? `${calc.itemsCovered} von ${calc.itemsTotal} Items haben einen Einkaufspreis gepflegt`
             : undefined
         }
-      />
-      <LedgerSubtotal
-        label="Rohertrag"
-        value={calc.grossProfit}
-        hint={
-          margePct != null
-            ? `${margePct.toFixed(1)} % Marge · ${formatEUR(calc.grossProfitDaily)} pro Tag`
-            : undefined
-        }
-      />
-      <LedgerRow
-        label="abzüglich Personal-Provision (an die Mitarbeiter)"
-        value={-calc.staffCommissionEmployee}
-        muted
-      />
-      <LedgerSubtotal
-        label="Deckungsbeitrag (ohne Lohnnebenkosten)"
-        value={calc.contributionMarginBeforeEmployerCosts}
-        hint={`${formatEUR(calc.contributionMarginBeforeEmployerCostsDaily)} pro Tag · was nach reiner Provisionsauszahlung übrig bleibt`}
-      />
-      <LedgerRow
-        label="abzüglich Lohnnebenkosten auf Provision"
-        value={-calc.staffEmployerExtras}
-        muted
-      />
-      <LedgerSubtotal
-        label="Deckungsbeitrag (inkl. Lohnnebenkosten)"
-        value={calc.contributionMargin}
-        hint={`${formatEUR(calc.contributionMarginDaily)} pro Tag (${calc.period.days} ${calc.period.days === 1 ? "Tag" : "Tage"} im Zeitraum)`}
-        accent
-      />
-      <LedgerRow
-        label="abzüglich Personal-Fix (Löhne/Gehälter)"
-        value={-calc.staffFixed}
-        muted
       />
       <LedgerRow
         label="abzüglich Fixkosten"
@@ -99,10 +116,6 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
     </div>
   );
 }
-
-// Receipt-Layout: rechte-orientierte Labels + linke-orientierte Werte,
-// gesamte Tabelle horizontal zentriert → Labels und Werte sind direkt
-// nebeneinander, unabhängig von der Container-Breite.
 
 function LedgerRow({
   label,
@@ -137,23 +150,6 @@ function LedgerRow({
         </p>
       )}
     </>
-  );
-}
-
-function LedgerParenRow({
-  label,
-  value,
-}: {
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="grid grid-cols-[1fr_minmax(100px,auto)] gap-x-6 py-0.5 text-muted-foreground">
-      <span className="text-right text-xs italic">{label}</span>
-      <span className="text-right tabular-nums text-xs italic">
-        ({formatEUR(value)})
-      </span>
-    </div>
   );
 }
 

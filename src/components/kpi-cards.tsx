@@ -1,17 +1,19 @@
 import { formatEUR } from "@/lib/format";
 import type { CalculationResult } from "@/lib/calculation";
 
-// KPI-Zeile für die "wichtigen Zahlen auf einen Blick"-Sicht.
-// Rendert vier Karten mit Kernkennzahlen, gedacht als visuelle Ergänzung
-// über der detaillierten Ergebnis-Rechnung.
-
+// KPI-Zeile — 4 Wegpunkte der neuen Herleitung:
+//   1) Umsatz brutto
+//   2) Umsatz netto (nach MwSt)
+//   3) nach Personalkosten (nach Provision + LNK + Fix-Löhne)
+//   4) Gewinn (nach Wareneinsatz, Fixkosten, Eigenverbrauch)
 export function KpiCards({ calc }: { calc: CalculationResult }) {
-  const margePct =
-    calc.revenueNet > 0 ? (calc.grossProfit / calc.revenueNet) * 100 : null;
-  const dbPct =
-    calc.revenueNet > 0
-      ? (calc.contributionMargin / calc.revenueNet) * 100
-      : null;
+  const staffTotal =
+    calc.staffCommissionEmployee + calc.staffEmployerExtras + calc.staffFixed;
+  const netAfterStaff = calc.revenueNet - staffTotal;
+  const staffPct =
+    calc.revenueNet > 0 ? (staffTotal / calc.revenueNet) * 100 : null;
+  const netPct =
+    calc.revenue > 0 ? (calc.revenueNet / calc.revenue) * 100 : null;
   const profitPct =
     calc.revenueNet > 0 ? (calc.profit / calc.revenueNet) * 100 : null;
 
@@ -21,34 +23,40 @@ export function KpiCards({ calc }: { calc: CalculationResult }) {
         label="Umsatz brutto"
         value={calc.revenue}
         primary
-        sub={`${formatEUR(calc.revenueNet)} netto${
-          calc.tips > 0 ? ` · ${formatEUR(calc.tips)} TG separat` : ""
+        sub={`${calc.invoiceCount} Belege · ${calc.itemCount} Stück`}
+        subDetail={
+          calc.tips > 0
+            ? `${formatEUR(calc.tips)} Trinkgeld separat (kein Umsatz)`
+            : undefined
+        }
+      />
+      <KpiCard
+        label="Umsatz netto"
+        value={calc.revenueNet}
+        primary
+        sub={`nach MwSt ${formatEUR(calc.vat)}${
+          netPct != null ? ` · ${netPct.toFixed(1)} % vom Brutto` : ""
         }`}
-        subDetail={`${calc.invoiceCount} Belege · ${calc.itemCount} Stück`}
+        subDetail={
+          calc.netByVatRate.length > 0
+            ? calc.netByVatRate
+                .map((r) => `${r.rate}%: ${formatEUR(r.net)} netto`)
+                .join(" · ")
+            : undefined
+        }
       />
       <KpiCard
-        label="Rohertrag"
-        value={calc.grossProfit}
+        label="nach Personalkosten"
+        value={netAfterStaff}
         accent
-        sub={
-          margePct != null
-            ? `${margePct.toFixed(1)} % Marge · ${formatEUR(calc.grossProfitDaily)} / Tag`
-            : "—"
-        }
-        subDetail={`Umsatz netto − Wareneinsatz ${formatEUR(calc.cogs)}`}
-      />
-      <KpiCard
-        label="Deckungsbeitrag"
-        value={calc.contributionMargin}
-        accent
-        sub={
-          dbPct != null
-            ? `${dbPct.toFixed(1)} % Netto · ${formatEUR(calc.contributionMarginDaily)} / Tag`
-            : "—"
-        }
-        subDetail={`nach Provision (inkl. Lohnnebenkosten) ${formatEUR(
-          calc.staffCommission,
-        )}`}
+        sub={`Personal gesamt ${formatEUR(staffTotal)}${
+          staffPct != null ? ` · ${staffPct.toFixed(1)} % vom Netto` : ""
+        }`}
+        subDetail={`Provision ${formatEUR(
+          calc.staffCommissionEmployee,
+        )} + LNK ${formatEUR(calc.staffEmployerExtras)}${
+          calc.staffFixed > 0 ? ` + Fix ${formatEUR(calc.staffFixed)}` : ""
+        }`}
       />
       <KpiCard
         label="Gewinn"
@@ -57,9 +65,11 @@ export function KpiCards({ calc }: { calc: CalculationResult }) {
         sub={
           profitPct != null ? `${profitPct.toFixed(1)} % vom Netto-Umsatz` : "—"
         }
-        subDetail={`nach Fixkosten ${formatEUR(calc.fixedCosts)}${
+        subDetail={`− Waren ${formatEUR(calc.cogs)} − Fixkosten ${formatEUR(
+          calc.fixedCosts,
+        )}${
           calc.internalUseCogs > 0
-            ? ` + Eigenverbrauch ${formatEUR(calc.internalUseCogs)}`
+            ? ` − Eigenverbrauch ${formatEUR(calc.internalUseCogs)}`
             : ""
         }`}
       />
@@ -96,9 +106,7 @@ function KpiCard({
       style={
         highlight
           ? {
-              borderColor: negative
-                ? "var(--destructive)"
-                : "var(--brand)",
+              borderColor: negative ? "var(--destructive)" : "var(--brand)",
               borderWidth: 2,
             }
           : undefined
