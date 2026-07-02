@@ -19,6 +19,16 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
         label="abzüglich Mehrwertsteuer"
         value={-calc.vat}
         muted
+        hint={
+          calc.netByVatRate.length > 0
+            ? calc.netByVatRate
+                .map(
+                  (r) =>
+                    `${r.rate}%: ${formatEUR(r.net)} netto + ${formatEUR(r.vat)} USt`,
+                )
+                .join(" · ")
+            : undefined
+        }
       />
       <LedgerSubtotal label="Umsatz netto" value={calc.revenueNet} />
       <LedgerRow

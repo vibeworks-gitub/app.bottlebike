@@ -83,6 +83,8 @@ type ItemRow = {
   item_qty: number | null;
   item_total: number | null;
   item_total_net: number | null;
+  item_vat: number | null;
+  item_vat_rate: number | null;
   item_retour: boolean | null;
   item_timestamp: string | null;
   user_id: number | null;
@@ -175,8 +177,15 @@ export type CalculationResult = {
     revenue: number;
     isPfand: boolean;
   }>;
-  internalUse: number; // Eigenverbrauch-"Umsatz" (interner Wert, intern entnommen)
+  internalUse: number; // Eigenverbrauch-"Umsatz" (r2o-Brutto der Eigenverbrauchs-Belege)
+  internalUseNet: number; // Eigenverbrauch-Netto (r2o)
+  internalUseVat: number; // Eigenverbrauch-USt (r2o)
   internalUseCogs: number; // Eigenverbrauch-Wareneinsatz (echte Lager-Entnahme)
+  // Netto/USt-Aufschlüsselung pro Steuersatz — Kunden-Umsatz (ohne Eigenverbrauch, ohne Trinkgeld).
+  netByVatRate: Array<{ rate: number; net: number; vat: number; gross: number; qty: number }>;
+  // Storno-Belege (Rechnungen mit negativem Total) — informativ; saldieren sich in Summe.
+  stornoCount: number;
+  stornoGrossSum: number;
   internalUseItems: Array<{
     invoice_id: number;
     product_id: number;
@@ -259,7 +268,7 @@ export async function calculateForPeriod(
     supabase
       .from("r2o_invoice_items")
       .select(
-        "invoice_id, product_id, item_quantity, item_qty, item_total, item_total_net, item_retour, item_timestamp, user_id",
+        "invoice_id, product_id, item_quantity, item_qty, item_total, item_total_net, item_vat, item_vat_rate, item_retour, item_timestamp, user_id",
       )
       .eq("owner_id", ownerId)
       .gte("item_timestamp", fromIso)
@@ -357,21 +366,31 @@ export async function calculateForPeriod(
   let vat = 0;
   let tips = 0;
   let internalUse = 0;
+  let internalUseNet = 0;
+  let internalUseVat = 0;
+  let stornoCount = 0;
+  let stornoGrossSum = 0;
   const internalInvoiceIds = new Set<number>();
   for (const i of invs) {
     const isInternal =
       i.payment_method_id != null && internalUsePaymentIds.has(i.payment_method_id);
     if (isInternal) {
       internalUse += Number(i.invoice_total ?? 0);
+      internalUseNet += Number(i.invoice_total_net ?? 0);
+      internalUseVat += Number(i.invoice_total_vat ?? 0);
       internalInvoiceIds.add(i.invoice_id);
       continue;
     }
+    const grossTotal = Number(i.invoice_total ?? 0);
+    if (grossTotal < 0) {
+      stornoCount += 1;
+      stornoGrossSum += grossTotal;
+    }
     // r2o liefert invoice_total / invoice_total_net INKLUSIVE Trinkgeld.
     // Trinkgeld ist steuerlich kein Umsatz — hier abziehen, separat als tips
-    // tracken. Dieselbe Logik gilt auch fuer alle Aggregationen weiter unten
-    // (siehe Helper `withoutTip`).
+    // tracken. Dieselbe Logik gilt auch fuer alle Aggregationen weiter unten.
     const tip = Number(i.invoice_total_tip ?? 0);
-    revenue += Number(i.invoice_total ?? 0) - tip;
+    revenue += grossTotal - tip;
     revenueNet += Number(i.invoice_total_net ?? 0) - tip;
     vat += Number(i.invoice_total_vat ?? 0);
     tips += tip;
@@ -384,6 +403,11 @@ export async function calculateForPeriod(
   let itemsCovered = 0;
   let itemsCountedTotal = 0;
   let itemsQtyCustomer = 0;
+  // Netto/USt-Aufschlüsselung pro Steuersatz (nur Kunden-Umsatz, ohne Eigenverbrauch).
+  const vatRateAcc = new Map<
+    number,
+    { net: number; vat: number; gross: number; qty: number }
+  >();
   for (const it of its) {
     if (it.product_id == null) continue;
     if (!paidInvoiceIdsForCogs.has(it.invoice_id)) continue;
@@ -401,7 +425,20 @@ export async function calculateForPeriod(
       cogs += cp * Number(it.item_quantity);
       itemsCovered += 1;
     }
+    const rate = Number(it.item_vat_rate ?? 0);
+    const net = Number(it.item_total_net ?? 0);
+    const gross = Number(it.item_total ?? 0);
+    const itemVat = Number(it.item_vat ?? (gross - net));
+    const acc = vatRateAcc.get(rate) ?? { net: 0, vat: 0, gross: 0, qty: 0 };
+    acc.net += net;
+    acc.vat += itemVat;
+    acc.gross += gross;
+    acc.qty += qty;
+    vatRateAcc.set(rate, acc);
   }
+  const netByVatRate = Array.from(vatRateAcc.entries())
+    .map(([rate, v]) => ({ rate, ...v }))
+    .sort((a, b) => b.rate - a.rate);
 
   // Rohertrag / Deckungsbeitrag I = Umsatz netto − Wareneinsatz netto
   const grossProfit = revenueNet - cogs;
@@ -699,7 +736,12 @@ export async function calculateForPeriod(
     byPayment,
     byProductGroup,
     byProduct,
+    netByVatRate,
+    stornoCount,
+    stornoGrossSum,
     internalUse,
+    internalUseNet,
+    internalUseVat,
     internalUseCogs,
     internalUseItems,
     itemsCovered,

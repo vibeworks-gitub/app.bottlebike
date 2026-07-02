@@ -717,15 +717,44 @@ export default async function DashboardPage({
         </Card>
       </section>
 
+      {calc.stornoCount > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Stornos im Zeitraum</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {calc.stornoCount} Storno-Beleg{calc.stornoCount === 1 ? "" : "e"}
+              {" · "}
+              Summe {formatEUR(calc.stornoGrossSum)}
+              {" · "}
+              {calc.stornoGrossSum === 0
+                ? "saldieren sich mit den Ursprungsbelegen — keine Auswirkung auf Umsatz"
+                : "Achtung: kein sauberes Gegenstück gefunden"}
+            </p>
+          </CardHeader>
+        </Card>
+      )}
+
       {calc.internalUseItems.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Eigenverbrauch</CardTitle>
             <p className="text-xs text-muted-foreground">
-              Intern entnommene Ware ({formatEUR(calc.internalUse)} ·{" "}
-              {calc.internalUseItems.length} Position
-              {calc.internalUseItems.length === 1 ? "" : "en"}) ·{" "}
+              Intern entnommene Ware · {calc.internalUseItems.length} Position
+              {calc.internalUseItems.length === 1 ? "" : "en"} ·{" "}
               <strong>zählt nicht zur Verkaufsstatistik</strong>
+            </p>
+            <p className="mt-2 text-xs">
+              r2o-Wert: <strong>{formatEUR(calc.internalUse)}</strong> brutto
+              {" · "}
+              {formatEUR(calc.internalUseNet)} netto
+              {" + "}
+              {formatEUR(calc.internalUseVat)} USt
+              {calc.internalUseCogs > 0 && (
+                <>
+                  {" · "}echter Wareneinsatz{" "}
+                  <strong>{formatEUR(calc.internalUseCogs)}</strong>
+                </>
+              )}
             </p>
           </CardHeader>
           <CardContent className="p-0">
