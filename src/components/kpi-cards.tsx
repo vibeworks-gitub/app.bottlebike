@@ -1,21 +1,22 @@
 import { formatEUR } from "@/lib/format";
 import type { CalculationResult } from "@/lib/calculation";
 
-// KPI-Zeile — 4 Wegpunkte der neuen Herleitung:
+// KPI-Zeile mit 4 Kern-Kennzahlen:
 //   1) Umsatz brutto
-//   2) Umsatz netto (nach MwSt)
-//   3) nach Personalkosten (nach Provision + LNK + Fix-Löhne)
-//   4) Gewinn (nach Wareneinsatz, Fixkosten, Eigenverbrauch)
+//   2) Rohertrag (= Umsatz netto − Wareneinsatz)
+//   3) Mitarbeiterkosten gesamt (Provision + Lohnnebenkosten + Fix-Löhne)
+//   4) Gewinn
 export function KpiCards({ calc }: { calc: CalculationResult }) {
   const staffTotal =
     calc.staffCommissionEmployee + calc.staffEmployerExtras + calc.staffFixed;
-  const netAfterStaff = calc.revenueNet - staffTotal;
+  const margePct =
+    calc.revenueNet > 0 ? (calc.grossProfit / calc.revenueNet) * 100 : null;
   const staffPct =
     calc.revenueNet > 0 ? (staffTotal / calc.revenueNet) * 100 : null;
-  const netPct =
-    calc.revenue > 0 ? (calc.revenueNet / calc.revenue) * 100 : null;
   const profitPct =
     calc.revenueNet > 0 ? (calc.profit / calc.revenueNet) * 100 : null;
+  const netPct =
+    calc.revenue > 0 ? (calc.revenueNet / calc.revenue) * 100 : null;
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -23,35 +24,32 @@ export function KpiCards({ calc }: { calc: CalculationResult }) {
         label="Umsatz brutto"
         value={calc.revenue}
         primary
-        sub={`${calc.invoiceCount} Belege · ${calc.itemCount} Stück`}
-        subDetail={
-          calc.tips > 0
-            ? `${formatEUR(calc.tips)} Trinkgeld separat (kein Umsatz)`
-            : undefined
-        }
-      />
-      <KpiCard
-        label="Umsatz netto"
-        value={calc.revenueNet}
-        primary
-        sub={`nach MwSt ${formatEUR(calc.vat)}${
-          netPct != null ? ` · ${netPct.toFixed(1)} % vom Brutto` : ""
+        sub={`${formatEUR(calc.revenueNet)} netto${
+          netPct != null ? ` · ${netPct.toFixed(1)} %` : ""
         }`}
-        subDetail={
-          calc.netByVatRate.length > 0
-            ? calc.netByVatRate
-                .map((r) => `${r.rate}%: ${formatEUR(r.net)} netto`)
-                .join(" · ")
-            : undefined
-        }
+        subDetail={`${calc.invoiceCount} Belege · ${calc.itemCount} Stück${
+          calc.tips > 0 ? ` · ${formatEUR(calc.tips)} TG separat` : ""
+        }`}
       />
       <KpiCard
-        label="nach Personalkosten"
-        value={netAfterStaff}
+        label="Rohertrag"
+        value={calc.grossProfit}
         accent
-        sub={`Personal gesamt ${formatEUR(staffTotal)}${
-          staffPct != null ? ` · ${staffPct.toFixed(1)} % vom Netto` : ""
-        }`}
+        sub={
+          margePct != null
+            ? `${margePct.toFixed(1)} % Marge · ${formatEUR(calc.grossProfitDaily)} / Tag`
+            : "—"
+        }
+        subDetail={`Umsatz netto ${formatEUR(calc.revenueNet)} − Wareneinsatz ${formatEUR(calc.cogs)}`}
+      />
+      <KpiCard
+        label="Mitarbeiterkosten"
+        // Kosten werden als POSITIVE Zahl in der Karte gezeigt (Aufwand)
+        value={staffTotal}
+        muted
+        sub={
+          staffPct != null ? `${staffPct.toFixed(1)} % vom Netto-Umsatz` : "—"
+        }
         subDetail={`Provision ${formatEUR(
           calc.staffCommissionEmployee,
         )} + LNK ${formatEUR(calc.staffEmployerExtras)}${
@@ -65,12 +63,8 @@ export function KpiCards({ calc }: { calc: CalculationResult }) {
         sub={
           profitPct != null ? `${profitPct.toFixed(1)} % vom Netto-Umsatz` : "—"
         }
-        subDetail={`− Waren ${formatEUR(calc.cogs)} − Fixkosten ${formatEUR(
-          calc.fixedCosts,
-        )}${
-          calc.internalUseCogs > 0
-            ? ` − Eigenverbrauch ${formatEUR(calc.internalUseCogs)}`
-            : ""
+        subDetail={`nach Personal, Waren, Fixkosten${
+          calc.internalUseCogs > 0 ? " + Eigenverbrauch" : ""
         }`}
       />
     </div>
@@ -85,6 +79,7 @@ function KpiCard({
   accent,
   highlight,
   primary,
+  muted,
 }: {
   label: string;
   value: number;
@@ -93,11 +88,13 @@ function KpiCard({
   accent?: boolean;
   highlight?: boolean;
   primary?: boolean;
+  muted?: boolean;
 }) {
   const negative = value < 0;
   let valueColor: string | undefined;
   if (negative) valueColor = "var(--destructive)";
   else if (highlight || accent) valueColor = "var(--brand)";
+  else if (muted) valueColor = "var(--muted-foreground)";
   else if (primary) valueColor = "var(--foreground)";
 
   return (
