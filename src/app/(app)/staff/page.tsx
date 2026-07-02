@@ -11,13 +11,53 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { formatEUR } from "@/lib/format";
-import { staffCostMonthly, staffCostDaily } from "@/lib/cost-math";
+import {
+  staffCostMonthly,
+  staffCostDaily,
+  staffCommission,
+  staffCommissionWithEmployerCost,
+} from "@/lib/cost-math";
+import { periodFor, type PeriodPreset } from "@/lib/calculation";
 import type { StaffCost } from "@/lib/types/database";
 import { deleteStaffCost } from "./actions";
 
-export default async function StaffPage() {
+const PERIOD_PRESETS: ReadonlyArray<{ key: PeriodPreset; label: string }> = [
+  { key: "month", label: "Dieser Monat" },
+  { key: "last_month", label: "Letzter Monat" },
+  { key: "ytd", label: "Dieses Jahr" },
+  { key: "all", label: "Alle" },
+];
+
+export default async function StaffPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ period?: string }>;
+}) {
+  const { period: periodParam } = await searchParams;
   const supabase = await createClient();
-  const [{ data: staff }, { data: r2oUsers }] = await Promise.all([
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const { data: integration } = user
+    ? await supabase
+        .from("integrations")
+        .select("accounting_start_date")
+        .eq("user_id", user.id)
+        .eq("provider", "ready2order")
+        .maybeSingle<{ accounting_start_date: string | null }>()
+    : { data: null };
+
+  const presetKey =
+    PERIOD_PRESETS.find((p) => p.key === periodParam)?.key ?? "month";
+  const period = periodFor(
+    presetKey,
+    new Date(),
+    integration?.accounting_start_date ?? null,
+  );
+
+  const [{ data: staff }, { data: r2oUsers }, { data: invoices }, { data: payments }] = await Promise.all([
     supabase
       .from("bb_staff_costs")
       .select("*")
@@ -26,7 +66,43 @@ export default async function StaffPage() {
     supabase
       .from("r2o_users")
       .select("r2o_user_id, user_first_name, user_last_name, user_username"),
+    // Bezahlte Umsatz-Belege im Zeitraum, für Provisions-Berechnung pro r2o-User.
+    supabase
+      .from("r2o_invoices")
+      .select(
+        "invoice_id, invoice_total_net, invoice_total_tip, user_id, payment_method_id, invoice_paid, invoice_paid_date, invoice_deleted_at, invoice_test_mode",
+      )
+      .eq("invoice_paid", true)
+      .gte("invoice_paid_date", period.from.toISOString())
+      .lte("invoice_paid_date", period.to.toISOString()),
+    supabase.from("r2o_payment_methods").select("payment_id, payment_name"),
   ]);
+
+  // Eigenverbrauchs-Zahlungsmethode ausschliessen (dieselbe Regel wie im Dashboard)
+  const internalPaymentIds = new Set<number>();
+  for (const p of payments ?? []) {
+    const name = (p.payment_name ?? "").toLowerCase();
+    if (name.includes("eigenverbrauch") || name.includes("internal"))
+      internalPaymentIds.add(p.payment_id as number);
+  }
+
+  const netByR2oUser = new Map<number, number>();
+  for (const i of invoices ?? []) {
+    if (i.invoice_deleted_at) continue;
+    if (i.invoice_test_mode) continue;
+    if (
+      i.payment_method_id != null &&
+      internalPaymentIds.has(i.payment_method_id as number)
+    )
+      continue;
+    if (i.user_id == null) continue;
+    const net =
+      Number(i.invoice_total_net ?? 0) - Number(i.invoice_total_tip ?? 0);
+    netByR2oUser.set(
+      i.user_id as number,
+      (netByR2oUser.get(i.user_id as number) ?? 0) + net,
+    );
+  }
 
   const r2oName = new Map<number, string>();
   for (const u of r2oUsers ?? []) {
@@ -38,17 +114,50 @@ export default async function StaffPage() {
     );
   }
 
-  const empty = !staff || staff.length === 0;
-  const totals = (staff ?? [])
+  type StaffLine = {
+    staff: StaffCost;
+    netRevenue: number;
+    provision: number;
+    lnk: number;
+    fix: number;
+    total: number;
+  };
+  const lines: StaffLine[] = (staff ?? [])
     .filter((s) => s.active)
-    .reduce(
-      (a, s) => {
-        a.daily += staffCostDaily(s);
-        a.monthly += staffCostMonthly(s);
-        return a;
-      },
-      { daily: 0, monthly: 0 },
-    );
+    .map((s) => {
+      const netRevenue =
+        s.r2o_user_id != null ? (netByR2oUser.get(s.r2o_user_id) ?? 0) : 0;
+      const provision =
+        s.commission_pct != null ? staffCommission(s, netRevenue) : 0;
+      const provisionInklLnk =
+        s.commission_pct != null
+          ? staffCommissionWithEmployerCost(s, netRevenue)
+          : 0;
+      const lnk = provisionInklLnk - provision;
+      const fix = staffCostDaily(s) * period.days;
+      return {
+        staff: s,
+        netRevenue,
+        provision,
+        lnk,
+        fix,
+        total: provision + lnk + fix,
+      };
+    });
+
+  const totals = lines.reduce(
+    (a, l) => {
+      a.netRevenue += l.netRevenue;
+      a.provision += l.provision;
+      a.lnk += l.lnk;
+      a.fix += l.fix;
+      a.total += l.total;
+      return a;
+    },
+    { netRevenue: 0, provision: 0, lnk: 0, fix: 0, total: 0 },
+  );
+
+  const empty = !staff || staff.length === 0;
 
   return (
     <div className="flex flex-col gap-8">
@@ -74,14 +183,70 @@ export default async function StaffPage() {
       </header>
 
       {!empty && (
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <Stat label="Pro Monat" value={formatEUR(totals.monthly)} accent />
-          <Stat label="Pro Tag" value={formatEUR(totals.daily)} />
-          <Stat
-            label="Aktive Personen"
-            value={String(staff!.filter((s) => s.active).length)}
-          />
-        </section>
+        <>
+          <div className="flex flex-wrap items-center gap-1.5 text-sm">
+            <span className="text-xs text-muted-foreground pr-2">Zeitraum</span>
+            {PERIOD_PRESETS.map((p) => {
+              const active = p.key === presetKey;
+              return (
+                <Link
+                  key={p.key}
+                  href={`/staff?period=${p.key}`}
+                  className="rounded-md border px-3 py-1.5 font-medium"
+                  style={
+                    active
+                      ? {
+                          backgroundColor: "hsl(0 0% 9%)",
+                          color: "white",
+                          borderColor: "transparent",
+                        }
+                      : {
+                          backgroundColor: "var(--card)",
+                          color: "var(--foreground)",
+                        }
+                  }
+                >
+                  {p.label}
+                </Link>
+              );
+            })}
+            <span className="pl-2 text-xs text-muted-foreground">
+              {period.label} · {period.days} Tag{period.days === 1 ? "" : "e"}
+            </span>
+          </div>
+
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <Stat
+              label="Gesamt-Personalkosten"
+              value={formatEUR(totals.total)}
+              accent
+              sub={`${period.label}`}
+            />
+            <Stat
+              label="davon Provision"
+              value={formatEUR(totals.provision)}
+              sub={
+                totals.netRevenue > 0
+                  ? `auf ${formatEUR(totals.netRevenue)} Netto`
+                  : "keine Umsätze"
+              }
+            />
+            <Stat
+              label="davon Lohnnebenkosten"
+              value={formatEUR(totals.lnk)}
+              sub="Arbeitgeber-Anteil"
+            />
+            <Stat
+              label="davon Fix-Löhne"
+              value={formatEUR(totals.fix)}
+              sub={
+                totals.fix > 0
+                  ? "monatlich × Tage"
+                  : "keine Fix-Löhne aktiv"
+              }
+            />
+          </section>
+        </>
       )}
 
       {empty ? (
@@ -117,117 +282,185 @@ export default async function StaffPage() {
                   Name
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  Rolle
-                </TableHead>
-                <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Modell
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
-                  ≈ pro Monat
+                  Umsatz netto
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
-                  ≈ pro Tag
+                  Provision
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                  LNK
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                  Fix
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                  Gesamt
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                  r2o-Verknüpfung
+                  r2o
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Status
                 </TableHead>
-                <TableHead className="w-32" />
+                <TableHead className="w-28" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {staff!.map((s) => (
-                <TableRow key={s.id}>
-                  <TableCell>
-                    <Link
-                      href={`/staff/${s.id}`}
-                      className="font-medium hover:underline"
-                      style={{ color: "var(--brand)" }}
-                    >
-                      {s.display_name}
-                    </Link>
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {s.role ?? "—"}
-                  </TableCell>
-                  <TableCell className="text-xs">
-                    <div className="flex flex-col gap-0.5">
-                      {s.monthly_salary != null && (
-                        <span>{formatEUR(s.monthly_salary)} / Monat</span>
-                      )}
-                      {s.hourly_rate != null && s.hours_per_week != null && (
-                        <span>
-                          {formatEUR(s.hourly_rate)}/h × {s.hours_per_week}h/W
-                        </span>
-                      )}
-                      {s.commission_pct != null && (
-                        <span style={{ color: "var(--brand)" }}>
-                          {s.commission_pct}% Provision
-                        </span>
-                      )}
-                      {s.monthly_salary == null &&
-                        s.hourly_rate == null &&
-                        s.commission_pct == null && <span>—</span>}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {staffCostMonthly(s) > 0
-                      ? formatEUR(staffCostMonthly(s))
-                      : s.commission_pct != null
-                        ? "umsatzabhängig"
-                        : "—"}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {staffCostMonthly(s) > 0
-                      ? formatEUR(staffCostDaily(s))
-                      : s.commission_pct != null
-                        ? "umsatzabhängig"
-                        : "—"}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {s.r2o_user_id != null
-                      ? (r2oName.get(s.r2o_user_id) ?? `#${s.r2o_user_id}`)
-                      : "—"}
-                  </TableCell>
-                  <TableCell>
-                    {s.active ? (
-                      <Badge variant="secondary">aktiv</Badge>
-                    ) : (
-                      <Badge variant="outline">inaktiv</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-1">
+              {lines.map((l) => {
+                const s = l.staff;
+                return (
+                  <TableRow key={s.id}>
+                    <TableCell>
                       <Link
                         href={`/staff/${s.id}`}
-                        className={buttonVariants({
-                          variant: "ghost",
-                          size: "sm",
-                        })}
+                        className="font-medium hover:underline"
+                        style={{ color: "var(--brand)" }}
                       >
-                        Bearbeiten
+                        {s.display_name}
                       </Link>
-                      <form action={deleteStaffCost}>
-                        <input type="hidden" name="id" value={s.id} />
-                        <button
-                          type="submit"
+                      {s.role && (
+                        <span className="ml-2 text-xs text-muted-foreground">
+                          {s.role}
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-xs">
+                      <div className="flex flex-col gap-0.5">
+                        {s.monthly_salary != null && (
+                          <span>{formatEUR(s.monthly_salary)} / Monat</span>
+                        )}
+                        {s.hourly_rate != null && s.hours_per_week != null && (
+                          <span>
+                            {formatEUR(s.hourly_rate)}/h × {s.hours_per_week}h/W
+                          </span>
+                        )}
+                        {s.commission_pct != null && (
+                          <span style={{ color: "var(--brand)" }}>
+                            {s.commission_pct}% Provision
+                          </span>
+                        )}
+                        {s.monthly_salary == null &&
+                          s.hourly_rate == null &&
+                          s.commission_pct == null && <span>—</span>}
+                      </div>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {l.netRevenue > 0 ? formatEUR(l.netRevenue) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">
+                      {l.provision > 0 ? formatEUR(l.provision) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {l.lnk > 0 ? formatEUR(l.lnk) : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                      {l.fix > 0 ? formatEUR(l.fix) : "—"}
+                    </TableCell>
+                    <TableCell
+                      className="text-right tabular-nums font-semibold"
+                      style={l.total > 0 ? { color: "var(--brand)" } : undefined}
+                    >
+                      {l.total > 0 ? formatEUR(l.total) : "—"}
+                    </TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {s.r2o_user_id != null
+                        ? (r2oName.get(s.r2o_user_id) ?? `#${s.r2o_user_id}`)
+                        : "—"}
+                    </TableCell>
+                    <TableCell>
+                      {s.active ? (
+                        <Badge variant="secondary">aktiv</Badge>
+                      ) : (
+                        <Badge variant="outline">inaktiv</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-1">
+                        <Link
+                          href={`/staff/${s.id}`}
                           className={buttonVariants({
                             variant: "ghost",
                             size: "sm",
                           })}
-                          style={{ color: "var(--destructive)" }}
                         >
-                          Löschen
-                        </button>
-                      </form>
-                    </div>
+                          Bearbeiten
+                        </Link>
+                        <form action={deleteStaffCost}>
+                          <input type="hidden" name="id" value={s.id} />
+                          <button
+                            type="submit"
+                            className={buttonVariants({
+                              variant: "ghost",
+                              size: "sm",
+                            })}
+                            style={{ color: "var(--destructive)" }}
+                          >
+                            Löschen
+                          </button>
+                        </form>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {(staff ?? []).filter((s) => !s.active).map((s) => (
+                <TableRow key={s.id} className="text-muted-foreground">
+                  <TableCell>
+                    <Link
+                      href={`/staff/${s.id}`}
+                      className="hover:underline"
+                    >
+                      {s.display_name}
+                    </Link>
                   </TableCell>
+                  <TableCell className="text-xs italic">inaktiv</TableCell>
+                  <TableCell colSpan={5} className="text-right text-xs">
+                    keine Berechnung
+                  </TableCell>
+                  <TableCell className="text-xs">
+                    {s.r2o_user_id != null
+                      ? r2oName.get(s.r2o_user_id) ?? `#${s.r2o_user_id}`
+                      : "—"}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant="outline">inaktiv</Badge>
+                  </TableCell>
+                  <TableCell />
                 </TableRow>
               ))}
             </TableBody>
           </Table>
+
+          <div className="border-t bg-muted/20 px-4 py-3 text-sm">
+            <div className="flex justify-between font-semibold">
+              <span>
+                Summe {period.label} · {lines.length} aktive Person
+                {lines.length === 1 ? "" : "en"}
+              </span>
+              <span style={{ color: "var(--brand)" }} className="tabular-nums">
+                {formatEUR(totals.total)}
+              </span>
+            </div>
+            <div className="mt-1 flex justify-between text-xs text-muted-foreground">
+              <span>
+                Kalkulations-Basis: theoretisch pro Monat{" "}
+                {formatEUR(
+                  (staff ?? [])
+                    .filter((s) => s.active)
+                    .reduce((a, s) => a + staffCostMonthly(s), 0),
+                )}
+                {" · pro Tag "}
+                {formatEUR(
+                  (staff ?? [])
+                    .filter((s) => s.active)
+                    .reduce((a, s) => a + staffCostDaily(s), 0),
+                )}
+              </span>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -237,10 +470,12 @@ export default async function StaffPage() {
 function Stat({
   label,
   value,
+  sub,
   accent,
 }: {
   label: string;
   value: string;
+  sub?: string;
   accent?: boolean;
 }) {
   return (
@@ -264,6 +499,9 @@ function Stat({
       >
         {value}
       </div>
+      {sub && (
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>
+      )}
     </div>
   );
 }
