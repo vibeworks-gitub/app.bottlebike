@@ -15,6 +15,7 @@ import {
 import { formatEUR, formatPercent } from "@/lib/format";
 import { calculateForPeriod, periodFor, type Period } from "@/lib/calculation";
 import { ResultLedger } from "@/components/result-ledger";
+import { KpiCards } from "@/components/kpi-cards";
 import type {
   Location,
   StockByLocation,
@@ -472,14 +473,17 @@ export default async function DashboardPage({
         </div>
       </header>
 
-      {/* Ergebnis-Rechnung */}
+      {/* Kern-KPIs auf einen Blick */}
+      <KpiCards calc={calc} />
+
+      {/* Detaillierte Herleitung des Gewinns */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base">
             Ergebnis-Rechnung · {period.label}
           </CardTitle>
           <p className="text-xs text-muted-foreground">
-            So entsteht der Gewinn — Schritt für Schritt von oben nach unten.
+            Vollständige Herleitung — Schritt für Schritt von oben nach unten.
           </p>
         </CardHeader>
         <CardContent>
