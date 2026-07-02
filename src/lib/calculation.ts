@@ -14,28 +14,55 @@ export type Period = {
   days: number;
 };
 
+export type PeriodPreset =
+  | "today"
+  | "yesterday"
+  | "week"
+  | "last_week"
+  | "month"
+  | "last_month"
+  | "last_30_days"
+  | "ytd"
+  | "year"
+  | "all";
+
 export function periodFor(
-  preset: "today" | "week" | "month" | "year" | "ytd",
+  preset: PeriodPreset,
   now: Date = new Date(),
+  accountingStartIso: string | null = null,
 ): Period {
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
   const end = new Date(now);
   end.setHours(23, 59, 59, 999);
+  const daysBetween = (a: Date, b: Date) =>
+    Math.floor((b.getTime() - a.getTime()) / 86400000) + 1;
 
   switch (preset) {
     case "today":
       return { from: start, to: end, label: "Heute", days: 1 };
+    case "yesterday": {
+      const from = new Date(start);
+      from.setDate(start.getDate() - 1);
+      const to = new Date(from);
+      to.setHours(23, 59, 59, 999);
+      return { from, to, label: "Gestern", days: 1 };
+    }
     case "week": {
       const dow = (start.getDay() + 6) % 7; // Mo=0
       const from = new Date(start);
       from.setDate(start.getDate() - dow);
-      return {
-        from,
-        to: end,
-        label: "Diese Woche",
-        days: dow + 1,
-      };
+      return { from, to: end, label: "Diese Woche", days: dow + 1 };
+    }
+    case "last_week": {
+      const dow = (start.getDay() + 6) % 7;
+      const to = new Date(start);
+      to.setDate(start.getDate() - dow - 1);
+      to.setHours(23, 59, 59, 999);
+      const from = new Date(to);
+      from.setDate(to.getDate() - 6);
+      from.setHours(0, 0, 0, 0);
+      return { from, to, label: "Letzte Woche", days: 7 };
     }
     case "month": {
       const from = new Date(start.getFullYear(), start.getMonth(), 1);
@@ -46,21 +73,64 @@ export function periodFor(
         days: start.getDate(),
       };
     }
+    case "last_month": {
+      const from = new Date(start.getFullYear(), start.getMonth() - 1, 1);
+      const to = new Date(start.getFullYear(), start.getMonth(), 0);
+      to.setHours(23, 59, 59, 999);
+      return {
+        from,
+        to,
+        label: "Letzter Monat",
+        days: daysBetween(from, to),
+      };
+    }
+    case "last_30_days": {
+      const from = new Date(start);
+      from.setDate(start.getDate() - 29);
+      return { from, to: end, label: "Letzte 30 Tage", days: 30 };
+    }
     case "ytd": {
       const from = new Date(start.getFullYear(), 0, 1);
-      const days = Math.floor(
-        (start.getTime() - from.getTime()) / 86400000 + 1,
-      );
-      return { from, to: end, label: "Bisher dieses Jahr", days };
+      return {
+        from,
+        to: end,
+        label: "Dieses Jahr",
+        days: daysBetween(from, start),
+      };
     }
     case "year": {
       const from = new Date(start.getFullYear() - 1, start.getMonth() + 1, 1);
-      const days = Math.floor(
-        (start.getTime() - from.getTime()) / 86400000 + 1,
-      );
-      return { from, to: end, label: "Letzte 12 Monate", days };
+      return {
+        from,
+        to: end,
+        label: "Letzte 12 Monate",
+        days: daysBetween(from, start),
+      };
+    }
+    case "all": {
+      const from = accountingStartIso
+        ? new Date(accountingStartIso + "T00:00:00")
+        : new Date(2000, 0, 1);
+      return {
+        from,
+        to: end,
+        label: "Alle",
+        days: daysBetween(from, start),
+      };
     }
   }
+}
+
+// Ganzer Kalendermonat (fuer den Monats-Picker in der Zeitraum-Leiste).
+export function periodForMonth(year: number, month: number): Period {
+  const from = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const to = new Date(year, month, 0, 23, 59, 59, 999);
+  const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
+  const label = from.toLocaleDateString("de-DE", {
+    month: "long",
+    year: "numeric",
+  });
+  return { from, to, label, days };
 }
 
 type InvoiceRow = {

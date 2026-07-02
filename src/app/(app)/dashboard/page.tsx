@@ -13,7 +13,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatEUR, formatPercent } from "@/lib/format";
-import { calculateForPeriod, periodFor, type Period } from "@/lib/calculation";
+import {
+  calculateForPeriod,
+  periodFor,
+  periodForMonth,
+  type Period,
+  type PeriodPreset,
+} from "@/lib/calculation";
 import { ResultLedger } from "@/components/result-ledger";
 import { KpiCards } from "@/components/kpi-cards";
 import type {
@@ -36,16 +42,29 @@ const movementLabel: Record<StockMovement["type"], string> = {
   reversal: "Rückbuchung",
 };
 
-type PeriodKey = "today" | "week" | "month" | "ytd";
 const PERIOD_PRESETS: ReadonlyArray<{
-  key: PeriodKey;
+  key: PeriodPreset;
   label: string;
 }> = [
+  { key: "yesterday", label: "Gestern" },
   { key: "today", label: "Heute" },
-  { key: "week", label: "Woche" },
-  { key: "month", label: "Monat" },
-  { key: "ytd", label: "Jahr" },
+  { key: "week", label: "Diese Woche" },
+  { key: "last_week", label: "Letzte Woche" },
+  { key: "month", label: "Dieser Monat" },
+  { key: "last_month", label: "Letzter Monat" },
+  { key: "last_30_days", label: "Letzte 30 Tage" },
+  { key: "ytd", label: "Dieses Jahr" },
 ];
+
+function parseMonthParam(s: string | undefined): { year: number; month: number } | null {
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})$/);
+  if (!m) return null;
+  const year = Number(m[1]);
+  const month = Number(m[2]);
+  if (month < 1 || month > 12) return null;
+  return { year, month };
+}
 
 function parseDateInput(s: string | undefined | null): Date | null {
   if (!s) return null;
@@ -112,10 +131,19 @@ type ItemForTopProducts = {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    month?: string;
+  }>;
 }) {
-  const { period: periodParam, from: fromParam, to: toParam } =
-    await searchParams;
+  const {
+    period: periodParam,
+    from: fromParam,
+    to: toParam,
+    month: monthParam,
+  } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -130,14 +158,29 @@ export default async function DashboardPage({
     .eq("provider", "ready2order")
     .maybeSingle<{ accounting_start_date: string | null }>();
 
-  // Eigener Zeitraum hat Vorrang vor Preset.
+  // Priorität: Eigener Zeitraum > Monat > Preset > default (today).
   const customPeriod = parseCustomPeriod(fromParam, toParam);
-  const periodKey: PeriodKey | "custom" = customPeriod
-    ? "custom"
-    : (PERIOD_PRESETS.find((p) => p.key === periodParam)?.key ?? "today");
+  const monthPeriodParsed = parseMonthParam(monthParam);
+  const monthPeriod = monthPeriodParsed
+    ? periodForMonth(monthPeriodParsed.year, monthPeriodParsed.month)
+    : null;
+  const presetKey =
+    PERIOD_PRESETS.find((p) => p.key === periodParam)?.key ??
+    (periodParam === "all" ? ("all" as PeriodPreset) : null);
+
   const period: Period =
     customPeriod ??
-    periodFor(periodKey === "custom" ? "today" : periodKey);
+    monthPeriod ??
+    (presetKey
+      ? periodFor(presetKey, new Date(), integration?.accounting_start_date ?? null)
+      : periodFor("today"));
+
+  // Aktive-Filter-Kennungen für die Toolbar
+  const activePeriodKey: string = customPeriod
+    ? "custom"
+    : monthPeriod
+      ? "month_specific"
+      : (presetKey ?? "today");
   const calc = await calculateForPeriod(
     supabase,
     user.id,
@@ -466,9 +509,10 @@ export default async function DashboardPage({
             </p>
           </div>
           <PeriodTabs
-            current={periodKey}
+            current={activePeriodKey}
             from={fromParam}
             to={toParam}
+            month={monthParam}
           />
         </div>
       </header>
@@ -1194,77 +1238,167 @@ export default async function DashboardPage({
   );
 }
 
+// Zwei-Reihen-Zeitraum-Toolbar analog zum Referenz-Design:
+//   Zeile 1 (klein): Alle · [ Monat-YYYY Picker ]
+//   Zeile 2 (Presets + eigener Zeitraum am Ende)
+// Aktive Pills = dunkler Hintergrund (neutral-900) mit weißer Schrift.
 function PeriodTabs({
   current,
   from,
   to,
+  month,
 }: {
   current: string;
   from?: string;
   to?: string;
+  month?: string;
 }) {
-  const customActive = current === "custom";
+  const now = new Date();
+  const defaultMonth =
+    month ??
+    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [monthYear, monthNum] = defaultMonth.split("-").map(Number);
+  const monthLabel = new Date(monthYear, monthNum - 1, 1).toLocaleDateString(
+    "de-DE",
+    { month: "long", year: "numeric" },
+  );
+
+  const isAll = current === "all";
+  const isMonth = current === "month_specific";
+  const isCustom = current === "custom";
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="flex rounded-lg border border-border bg-card p-1 text-sm">
+    <div className="flex flex-col gap-2">
+      {/* Zeile 1 — Alle + Monatspicker */}
+      <div className="flex items-center gap-2 text-sm">
+        <Link
+          href="/dashboard?period=all"
+          className="rounded-md border px-3 py-1.5 font-medium"
+          style={
+            isAll
+              ? { backgroundColor: "hsl(0 0% 9%)", color: "white", borderColor: "transparent" }
+              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
+          }
+        >
+          Alle
+        </Link>
+        <form
+          action="/dashboard"
+          method="get"
+          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5"
+          style={
+            isMonth
+              ? { backgroundColor: "hsl(0 0% 9%)", color: "white", borderColor: "transparent" }
+              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
+          }
+        >
+          <CalendarIcon active={isMonth} />
+          <input
+            type="month"
+            name="month"
+            defaultValue={defaultMonth}
+            aria-label="Monat"
+            className="border-none bg-transparent p-0 text-sm font-medium outline-none"
+            style={{ colorScheme: isMonth ? "dark" : "light" }}
+          />
+          <button
+            type="submit"
+            className="sr-only"
+            aria-label="Monat anwenden"
+          >
+            Anwenden
+          </button>
+        </form>
+        {isMonth && (
+          <span className="text-xs text-muted-foreground">
+            {monthLabel}
+          </span>
+        )}
+      </div>
+
+      {/* Zeile 2 — Presets + eigener Zeitraum */}
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
         {PERIOD_PRESETS.map((p) => {
           const active = p.key === current;
           return (
             <Link
               key={p.key}
               href={`/dashboard?period=${p.key}`}
-              className={`rounded-md px-3 py-1.5 font-medium transition-colors ${active ? "" : "text-muted-foreground hover:text-foreground"}`}
+              className="rounded-md border px-3 py-1.5 font-medium transition-colors"
               style={
                 active
-                  ? { backgroundColor: "var(--brand)", color: "white" }
-                  : undefined
+                  ? {
+                      backgroundColor: "hsl(0 0% 9%)",
+                      color: "white",
+                      borderColor: "transparent",
+                    }
+                  : { backgroundColor: "var(--card)", color: "var(--foreground)" }
               }
             >
               {p.label}
             </Link>
           );
         })}
-      </div>
-      <form
-        action="/dashboard"
-        method="get"
-        className="flex items-center gap-1 rounded-lg border border-border bg-card p-1 text-sm"
-        style={
-          customActive
-            ? {
-                borderColor:
-                  "color-mix(in oklab, var(--brand) 35%, transparent)",
-              }
-            : undefined
-        }
-      >
-        <span className="px-2 text-xs text-muted-foreground">
-          Eigener Zeitraum
-        </span>
-        <input
-          type="date"
-          name="from"
-          defaultValue={from ?? ""}
-          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
-          aria-label="Von"
-        />
-        <span className="text-xs text-muted-foreground">–</span>
-        <input
-          type="date"
-          name="to"
-          defaultValue={to ?? ""}
-          className="h-8 rounded-md border border-input bg-transparent px-2 text-xs outline-none"
-          aria-label="Bis"
-        />
-        <button
-          type="submit"
-          className="rounded-md px-3 py-1 text-xs font-medium"
-          style={{ backgroundColor: "var(--brand)", color: "white" }}
+        <form
+          action="/dashboard"
+          method="get"
+          className="ml-auto inline-flex items-center gap-1 rounded-md border px-3 py-1.5"
+          style={
+            isCustom
+              ? {
+                  backgroundColor: "hsl(0 0% 9%)",
+                  color: "white",
+                  borderColor: "transparent",
+                }
+              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
+          }
         >
-          Anwenden
-        </button>
-      </form>
+          <CalendarIcon active={isCustom} />
+          <input
+            type="date"
+            name="from"
+            defaultValue={from ?? ""}
+            aria-label="Von"
+            className="border-none bg-transparent p-0 text-sm outline-none"
+            style={{ colorScheme: isCustom ? "dark" : "light" }}
+          />
+          <span className={isCustom ? "text-white/70" : "text-muted-foreground"}>–</span>
+          <input
+            type="date"
+            name="to"
+            defaultValue={to ?? ""}
+            aria-label="Bis"
+            className="border-none bg-transparent p-0 text-sm outline-none"
+            style={{ colorScheme: isCustom ? "dark" : "light" }}
+          />
+          <button type="submit" className="sr-only">
+            Anwenden
+          </button>
+        </form>
+      </div>
     </div>
+  );
+}
+
+function CalendarIcon({ active }: { active?: boolean }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="h-4 w-4 shrink-0"
+      style={{ opacity: active ? 1 : 0.7 }}
+      aria-hidden
+    >
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" />
+      <line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+    </svg>
   );
 }
 
