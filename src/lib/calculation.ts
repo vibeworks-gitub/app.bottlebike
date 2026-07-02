@@ -366,10 +366,15 @@ export async function calculateForPeriod(
       internalInvoiceIds.add(i.invoice_id);
       continue;
     }
-    revenue += Number(i.invoice_total ?? 0);
-    revenueNet += Number(i.invoice_total_net ?? 0);
+    // r2o liefert invoice_total / invoice_total_net INKLUSIVE Trinkgeld.
+    // Trinkgeld ist steuerlich kein Umsatz — hier abziehen, separat als tips
+    // tracken. Dieselbe Logik gilt auch fuer alle Aggregationen weiter unten
+    // (siehe Helper `withoutTip`).
+    const tip = Number(i.invoice_total_tip ?? 0);
+    revenue += Number(i.invoice_total ?? 0) - tip;
+    revenueNet += Number(i.invoice_total_net ?? 0) - tip;
     vat += Number(i.invoice_total_vat ?? 0);
-    tips += Number(i.invoice_total_tip ?? 0);
+    tips += tip;
   }
 
   // COGS — Kunden-Items vs Eigenverbrauch-Items getrennt fuehren.
@@ -412,12 +417,13 @@ export async function calculateForPeriod(
     if (i.user_id != null) {
       revenueByUser.set(
         i.user_id,
-        (revenueByUser.get(i.user_id) ?? 0) + Number(i.invoice_total ?? 0),
+        (revenueByUser.get(i.user_id) ?? 0) + Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0),
       );
       revenueNetByUser.set(
         i.user_id,
         (revenueNetByUser.get(i.user_id) ?? 0) +
-          Number(i.invoice_total_net ?? 0),
+          Number(i.invoice_total_net ?? 0) -
+          Number(i.invoice_total_tip ?? 0),
       );
     }
   }
@@ -482,7 +488,7 @@ export async function calculateForPeriod(
     if (!i.invoice_paid_date) continue;
     const d = new Date(i.invoice_paid_date);
     const dow = d.getDay();
-    byWeekdayAcc[dow].revenue += Number(i.invoice_total ?? 0);
+    byWeekdayAcc[dow].revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
     byWeekdayAcc[dow].count += 1;
   }
   // Reorder: Mo (1) … So (0)
@@ -506,7 +512,7 @@ export async function calculateForPeriod(
     if (internalInvoiceIds.has(i.invoice_id)) continue;
     if (!i.invoice_paid_date) continue;
     const d = new Date(i.invoice_paid_date);
-    byHourAcc[d.getHours()].revenue += Number(i.invoice_total ?? 0);
+    byHourAcc[d.getHours()].revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
     byHourAcc[d.getHours()].count += 1;
   }
 
@@ -519,7 +525,7 @@ export async function calculateForPeriod(
     if (internalInvoiceIds.has(i.invoice_id)) continue;
     const k = i.user_id;
     const a = userAcc.get(k) ?? { revenue: 0, invoiceCount: 0 };
-    a.revenue += Number(i.invoice_total ?? 0);
+    a.revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
     a.invoiceCount += 1;
     userAcc.set(k, a);
   }
@@ -556,7 +562,7 @@ export async function calculateForPeriod(
     if (internalInvoiceIds.has(i.invoice_id)) continue;
     const k = i.payment_method_id;
     const a = payAcc.get(k) ?? { revenue: 0, count: 0 };
-    a.revenue += Number(i.invoice_total ?? 0);
+    a.revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
     a.count += 1;
     payAcc.set(k, a);
   }

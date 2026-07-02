@@ -11,6 +11,9 @@ export function ResultLedger({ calc }: { calc: CalculationResult }) {
       <LedgerRow label="Umsatz brutto" value={calc.revenue} bold />
       <LedgerHint>
         {calc.invoiceCount} Belege · {calc.itemCount} Stück
+        {calc.tips > 0
+          ? ` · Trinkgeld ${formatEUR(calc.tips)} separat (kein Umsatz)`
+          : ""}
       </LedgerHint>
       <LedgerRow
         label="abzüglich Mehrwertsteuer"
