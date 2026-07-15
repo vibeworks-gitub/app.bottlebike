@@ -268,19 +268,22 @@ export default async function StaffPage({
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
                   Modell
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Umsatz netto
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
-                  Provision
+                <TableHead
+                  className="text-right text-[11px] font-bold uppercase tracking-wider"
+                  style={{ color: "var(--brand)" }}
+                >
+                  Provision (Auszahlung)
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   LNK
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Fix
                 </TableHead>
-                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Gesamt
                 </TableHead>
                 <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
@@ -331,22 +334,31 @@ export default async function StaffPage({
                           s.commission_pct == null && <span>—</span>}
                       </div>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.netRevenue > 0 ? formatEUR(l.netRevenue) : "—"}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {l.provision > 0 ? formatEUR(l.provision) : "—"}
+                    <TableCell className="text-right">
+                      {l.provision > 0 ? (
+                        <span
+                          className="inline-block rounded-md px-2 py-1 font-heading text-base font-extrabold tabular-nums"
+                          style={{
+                            color: "var(--brand)",
+                            backgroundColor: "var(--brand-soft)",
+                          }}
+                        >
+                          {formatEUR(l.provision)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.lnk > 0 ? formatEUR(l.lnk) : "—"}
                     </TableCell>
-                    <TableCell className="text-right tabular-nums text-muted-foreground">
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.fix > 0 ? formatEUR(l.fix) : "—"}
                     </TableCell>
-                    <TableCell
-                      className="text-right tabular-nums font-semibold"
-                      style={l.total > 0 ? { color: "var(--brand)" } : undefined}
-                    >
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.total > 0 ? formatEUR(l.total) : "—"}
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">
@@ -424,8 +436,15 @@ export default async function StaffPage({
                 Summe {period.label} · {lines.length} aktive Person
                 {lines.length === 1 ? "" : "en"}
               </span>
-              <span style={{ color: "var(--brand)" }} className="tabular-nums">
-                {formatEUR(totals.total)}
+              <span className="tabular-nums">
+                <span style={{ color: "var(--brand)" }}>
+                  Provision {formatEUR(totals.provision)}
+                </span>
+                <span className="ml-3 text-xs font-normal text-muted-foreground">
+                  + LNK {formatEUR(totals.lnk)}
+                  {totals.fix > 0 ? ` + Fix ${formatEUR(totals.fix)}` : ""} ={" "}
+                  {formatEUR(totals.total)} gesamt
+                </span>
               </span>
             </div>
             <div className="mt-1 flex justify-between text-xs text-muted-foreground">
