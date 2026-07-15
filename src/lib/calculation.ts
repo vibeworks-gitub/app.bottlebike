@@ -126,7 +126,7 @@ export function periodForMonth(year: number, month: number): Period {
   const from = new Date(year, month - 1, 1, 0, 0, 0, 0);
   const to = new Date(year, month, 0, 23, 59, 59, 999);
   const days = Math.floor((to.getTime() - from.getTime()) / 86400000) + 1;
-  const label = from.toLocaleDateString("de-DE", {
+  const label = from.toLocaleDateString("de-DE", { timeZone: "Europe/Vienna",
     month: "long",
     year: "numeric",
   });

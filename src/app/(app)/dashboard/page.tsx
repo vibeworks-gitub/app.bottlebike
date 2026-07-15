@@ -30,7 +30,8 @@ import type {
   StockThreshold,
 } from "@/lib/types/database";
 
-const dt = new Intl.DateTimeFormat("de-DE", {
+const dt = new Intl.DateTimeFormat("de-AT", {
+  timeZone: "Europe/Vienna",
   dateStyle: "short",
   timeStyle: "short",
 });
@@ -108,7 +109,7 @@ function parseCustomPeriod(
     to: toEnd,
     days,
     label: sameDay
-      ? from.toLocaleDateString("de-DE", { dateStyle: "medium" })
+      ? from.toLocaleDateString("de-DE", { timeZone: "Europe/Vienna", dateStyle: "medium" })
       : `${fmt(from)} – ${fmt(to)}${to.getFullYear() !== from.getFullYear() ? to.getFullYear() : ""}`,
   };
 }
@@ -1075,7 +1076,7 @@ export default async function DashboardPage({
                                   >
                                     <div className="grid grid-cols-[40px_1fr_50px_50px] items-center gap-2">
                                       <span className="text-muted-foreground tabular-nums">
-                                        {new Intl.DateTimeFormat("de-DE", {
+                                        {new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna",
                                           timeStyle: "short",
                                         }).format(new Date(m.occurred_at))}
                                       </span>
@@ -1249,7 +1250,7 @@ function PeriodTabs({
   const [monthYear, monthNum] = defaultMonth.split("-").map(Number);
   const monthLabel = new Date(monthYear, monthNum - 1, 1).toLocaleDateString(
     "de-DE",
-    { month: "long", year: "numeric" },
+    { timeZone: "Europe/Vienna", month: "long", year: "numeric" },
   );
 
   const isAll = current === "all";

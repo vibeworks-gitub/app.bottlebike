@@ -21,11 +21,11 @@ import type {
   UnbookedSale,
 } from "@/lib/types/database";
 
-const dt = new Intl.DateTimeFormat("de-DE", {
+const dt = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna",
   dateStyle: "short",
   timeStyle: "short",
 });
-const tt = new Intl.DateTimeFormat("de-DE", { timeStyle: "short" });
+const tt = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna", timeStyle: "short" });
 
 const movementLabel: Record<StockMovement["type"], string> = {
   purchase: "Wareneingang",

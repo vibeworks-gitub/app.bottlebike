@@ -29,7 +29,7 @@ import type {
 } from "@/lib/types/database";
 import { EndShiftForm } from "./end-shift-form";
 
-const dt = new Intl.DateTimeFormat("de-DE", {
+const dt = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna",
   dateStyle: "short",
   timeStyle: "short",
 });

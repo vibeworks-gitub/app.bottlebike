@@ -39,7 +39,7 @@ export default async function R2oProductsPage() {
           {lastSync && (
             <p className="text-xs text-muted-foreground">
               Zuletzt synchronisiert:{" "}
-              {new Date(lastSync).toLocaleString("de-DE")}
+              {new Date(lastSync).toLocaleString("de-AT", { timeZone: "Europe/Vienna" })}
             </p>
           )}
         </div>

@@ -19,7 +19,7 @@ import {
 import { formatEUR } from "@/lib/format";
 import type { Location, Shift, StaffCost } from "@/lib/types/database";
 
-const dt = new Intl.DateTimeFormat("de-DE", {
+const dt = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna",
   dateStyle: "short",
   timeStyle: "short",
 });

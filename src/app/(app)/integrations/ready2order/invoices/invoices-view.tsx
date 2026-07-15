@@ -296,7 +296,7 @@ export function InvoicesView({
                       </TableCell>
                       <TableCell className="text-xs">
                         {i.invoice_paid_date
-                          ? new Date(i.invoice_paid_date).toLocaleString("de-DE")
+                          ? new Date(i.invoice_paid_date).toLocaleString("de-AT", { timeZone: "Europe/Vienna" })
                           : "—"}
                       </TableCell>
                       <TableCell className="text-right tabular-nums font-medium">

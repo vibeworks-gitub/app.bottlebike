@@ -343,7 +343,7 @@ export default async function EditProductPage({
               label="Zuletzt geändert"
               value={
                 product.product_updated_at
-                  ? new Date(product.product_updated_at).toLocaleString("de-DE")
+                  ? new Date(product.product_updated_at).toLocaleString("de-AT", { timeZone: "Europe/Vienna" })
                   : "—"
               }
               full

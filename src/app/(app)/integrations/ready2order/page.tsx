@@ -85,7 +85,7 @@ export default async function ReadyToOrderHome({
             {integration ? (
               <>
                 Account-Token gespeichert seit{" "}
-                {new Date(integration.created_at).toLocaleString("de-DE")}.
+                {new Date(integration.created_at).toLocaleString("de-AT", { timeZone: "Europe/Vienna" })}.
                 {companyId && (
                   <>
                     {" "}Company-ID: <code className="font-mono">{companyId}</code>.

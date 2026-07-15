@@ -16,7 +16,7 @@ import {
 import { formatEUR } from "@/lib/format";
 import { bookPurchase, deletePurchase } from "./actions";
 
-const fmtDate = new Intl.DateTimeFormat("de-DE", { dateStyle: "short" });
+const fmtDate = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna", dateStyle: "short" });
 
 export type PurchaseListItem = {
   id: string;

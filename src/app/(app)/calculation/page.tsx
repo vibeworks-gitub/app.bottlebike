@@ -717,7 +717,7 @@ function parseCustomPeriodForCalc(
     to: toEnd,
     days,
     label: sameDay
-      ? from.toLocaleDateString("de-DE", { dateStyle: "medium" })
+      ? from.toLocaleDateString("de-DE", { timeZone: "Europe/Vienna", dateStyle: "medium" })
       : `${fmt(from)} – ${fmt(to)}${to.getFullYear() !== from.getFullYear() ? to.getFullYear() : ""}`,
   };
 }

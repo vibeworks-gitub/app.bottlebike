@@ -138,12 +138,12 @@ export function EditAssignmentRow({
     assignment.location_id.slice(0, 8);
 
   if (!editing) {
-    const from = new Date(assignment.valid_from).toLocaleString("de-DE", {
+    const from = new Date(assignment.valid_from).toLocaleString("de-DE", { timeZone: "Europe/Vienna",
       dateStyle: "short",
       timeStyle: "short",
     });
     const to = assignment.valid_to
-      ? new Date(assignment.valid_to).toLocaleString("de-DE", {
+      ? new Date(assignment.valid_to).toLocaleString("de-DE", { timeZone: "Europe/Vienna",
           dateStyle: "short",
           timeStyle: "short",
         })
