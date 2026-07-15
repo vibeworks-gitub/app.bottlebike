@@ -23,7 +23,7 @@ import {
 import { ResultLedger } from "@/components/result-ledger";
 import { KpiCards } from "@/components/kpi-cards";
 import { DashboardCharts } from "@/components/dashboard-charts";
-import { MonthPicker, RangePicker } from "@/components/period-pickers";
+import { RangePicker } from "@/components/period-pickers";
 import type {
   Location,
   StockByLocation,
@@ -516,7 +516,6 @@ export default async function DashboardPage({
             current={activePeriodKey}
             from={fromParam}
             to={toParam}
-            month={monthParam}
           />
         </div>
       </header>
@@ -1237,90 +1236,52 @@ export default async function DashboardPage({
 
 // Zwei-Reihen-Zeitraum-Toolbar analog zum Referenz-Design:
 //   Zeile 1 (klein): Alle · [ Monat-YYYY Picker ]
-//   Zeile 2 (Presets + eigener Zeitraum am Ende)
-// Aktive Pills = dunkler Hintergrund (neutral-900) mit weißer Schrift.
+// Eine einheitliche Filter-Zeile: alle Presets als gleiche Pills (inkl. Alle),
+// rechts der eigene Zeitraum. Aktiv = dunkler Hintergrund, weiße Schrift.
 function PeriodTabs({
   current,
   from,
   to,
-  month,
 }: {
   current: string;
   from?: string;
   to?: string;
-  month?: string;
 }) {
-  const now = new Date();
-  const defaultMonth =
-    month ??
-    `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const [monthYear, monthNum] = defaultMonth.split("-").map(Number);
-  const monthLabel = new Date(monthYear, monthNum - 1, 1).toLocaleDateString(
-    "de-DE",
-    { timeZone: "Europe/Vienna", month: "long", year: "numeric" },
-  );
-
-  const isAll = current === "all";
-  const isMonth = current === "month_specific";
   const isCustom = current === "custom";
+  const pills: Array<{ key: string; label: string }> = [
+    ...PERIOD_PRESETS,
+    { key: "all", label: "Alle" },
+  ];
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Zeile 1 — Alle + Monatspicker */}
-      <div className="flex items-center gap-2 text-sm">
-        <Link
-          href="/dashboard?period=all"
-          className="rounded-md border px-3 py-1.5 font-medium"
-          style={
-            isAll
-              ? { backgroundColor: "hsl(0 0% 9%)", color: "white", borderColor: "transparent" }
-              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
-          }
-        >
-          Alle
-        </Link>
-        <MonthPicker
-          month={defaultMonth}
-          active={isMonth}
-          basePath="/dashboard"
-        />
-        {isMonth && (
-          <span className="text-xs text-muted-foreground">
-            {monthLabel}
-          </span>
-        )}
-      </div>
-
-      {/* Zeile 2 — Presets + eigener Zeitraum */}
-      <div className="flex flex-wrap items-center gap-1.5 text-sm">
-        {PERIOD_PRESETS.map((p) => {
-          const active = p.key === current;
-          return (
-            <Link
-              key={p.key}
-              href={`/dashboard?period=${p.key}`}
-              className="rounded-md border px-3 py-1.5 font-medium transition-colors"
-              style={
-                active
-                  ? {
-                      backgroundColor: "hsl(0 0% 9%)",
-                      color: "white",
-                      borderColor: "transparent",
-                    }
-                  : { backgroundColor: "var(--card)", color: "var(--foreground)" }
-              }
-            >
-              {p.label}
-            </Link>
-          );
-        })}
-        <RangePicker
-          from={from}
-          to={to}
-          active={isCustom}
-          basePath="/dashboard"
-        />
-      </div>
+    <div className="flex flex-wrap items-center gap-1.5 text-sm">
+      {pills.map((p) => {
+        const active = p.key === current;
+        return (
+          <Link
+            key={p.key}
+            href={`/dashboard?period=${p.key}`}
+            className="rounded-md border px-3 py-1.5 font-medium transition-colors"
+            style={
+              active
+                ? {
+                    backgroundColor: "hsl(0 0% 9%)",
+                    color: "white",
+                    borderColor: "transparent",
+                  }
+                : { backgroundColor: "var(--card)", color: "var(--foreground)" }
+            }
+          >
+            {p.label}
+          </Link>
+        );
+      })}
+      <RangePicker
+        from={from}
+        to={to}
+        active={isCustom}
+        basePath="/dashboard"
+      />
     </div>
   );
 }
