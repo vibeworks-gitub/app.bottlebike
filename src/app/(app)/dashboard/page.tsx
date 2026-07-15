@@ -543,56 +543,16 @@ export default async function DashboardPage({
               Verkäufe pro Mitarbeiter
             </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Zeitraum: {period.label}
+              Zeitraum: {period.label} · Auszahlungs-relevante Kennzahlen pro Person
             </p>
           </CardHeader>
-          <CardContent className="p-0">
+          <CardContent className="space-y-3">
             {calc.byUser.length === 0 ? (
-              <p className="px-6 pb-6 text-sm text-muted-foreground">
+              <p className="text-sm text-muted-foreground">
                 Keine Verkäufe im Zeitraum.
               </p>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow className="bg-muted/40 hover:bg-muted/40">
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider">
-                      Mitarbeiter
-                    </TableHead>
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
-                      Belege
-                    </TableHead>
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
-                      Umsatz
-                    </TableHead>
-                    <TableHead className="text-[11px] font-semibold uppercase tracking-wider text-right">
-                      Provision
-                    </TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {calc.byUser.map((u) => (
-                    <TableRow key={u.user_id ?? u.name}>
-                      <TableCell className="text-sm font-medium">
-                        {u.name}
-                        {u.isCommissionStaff && (
-                          <Badge variant="outline" className="ml-2 text-[10px]">
-                            Provisions-MA
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums text-right">
-                        {u.invoiceCount.toLocaleString("de-DE")}
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums text-right font-medium">
-                        {formatEUR(u.revenue)}
-                      </TableCell>
-                      <TableCell className="text-sm tabular-nums text-right text-muted-foreground">
-                        {u.commission > 0 ? formatEUR(u.commission) : "—"}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+              calc.byUser.map((u) => <StaffCard key={u.user_id ?? u.name} u={u} />)
             )}
           </CardContent>
         </Card>
@@ -1399,6 +1359,146 @@ function CalendarIcon({ active }: { active?: boolean }) {
       <line x1="8" y1="2" x2="8" y2="6" />
       <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
+  );
+}
+
+// Detaillierte Auszahlungs-Card pro Mitarbeiter (Provision + LNK + Eigenverbrauch + Trinkgeld).
+function StaffCard({
+  u,
+}: {
+  u: {
+    user_id: number | null;
+    name: string;
+    revenue: number;
+    revenueNet: number;
+    invoiceCount: number;
+    itemCount: number;
+    tips: number;
+    commissionPct: number | null;
+    commission: number;
+    commissionInklLnk: number;
+    isCommissionStaff: boolean;
+    internalUseGross: number;
+    internalUseCogs: number;
+    internalUseCount: number;
+  };
+}) {
+  const lnk = u.commissionInklLnk - u.commission;
+  return (
+    <div className="rounded-lg border bg-card">
+      <div className="flex items-baseline justify-between border-b px-4 py-3">
+        <div className="flex items-baseline gap-2">
+          <span className="font-heading text-lg font-bold">{u.name}</span>
+          {u.isCommissionStaff && u.commissionPct != null && (
+            <Badge variant="outline" className="text-[10px]">
+              {u.commissionPct}% Provision
+            </Badge>
+          )}
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums">
+          {u.invoiceCount} Belege · {u.itemCount} Stück
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 gap-3 p-4 sm:grid-cols-2">
+        {/* Linke Spalte: Umsatz + Basis */}
+        <div className="space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">Umsatz brutto</span>
+            <span className="tabular-nums">{formatEUR(u.revenue)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-muted-foreground">
+              Umsatz netto (Basis Provision)
+            </span>
+            <span className="font-medium tabular-nums">
+              {formatEUR(u.revenueNet)}
+            </span>
+          </div>
+          {u.tips > 0 && (
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Trinkgeld separat (durchlaufend zum MA)</span>
+              <span className="tabular-nums">{formatEUR(u.tips)}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Rechte Spalte: Provisions-Auszahlung */}
+        <div
+          className="space-y-2 rounded-md border p-3"
+          style={{
+            backgroundImage: u.isCommissionStaff
+              ? "linear-gradient(135deg, var(--brand-soft), transparent 70%)"
+              : undefined,
+          }}
+        >
+          {u.isCommissionStaff && u.commissionPct != null ? (
+            <>
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>Rechnung</span>
+                <span className="tabular-nums">
+                  {formatEUR(u.revenueNet)} × {u.commissionPct}%
+                </span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="font-medium">
+                  Auszahlung Provision (an MA)
+                </span>
+                <span
+                  className="font-heading text-xl font-extrabold tabular-nums"
+                  style={{ color: "var(--brand)" }}
+                >
+                  {formatEUR(u.commission)}
+                </span>
+              </div>
+              {lnk > 0 && (
+                <div className="flex justify-between text-xs text-muted-foreground">
+                  <span>+ Lohnnebenkosten (Chef zahlt)</span>
+                  <span className="tabular-nums">{formatEUR(lnk)}</span>
+                </div>
+              )}
+              {lnk > 0 && (
+                <div className="flex justify-between border-t pt-2 text-xs">
+                  <span className="text-muted-foreground">
+                    Gesamt-Kosten für Unternehmen
+                  </span>
+                  <span className="font-medium tabular-nums">
+                    {formatEUR(u.commissionInklLnk)}
+                  </span>
+                </div>
+              )}
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Keine Provisions-Verknüpfung hinterlegt.
+              <br />
+              (Personal-Seite: r2o-User → MA verknüpfen)
+            </p>
+          )}
+        </div>
+      </div>
+
+      {u.internalUseCount > 0 && (
+        <div className="border-t bg-muted/20 px-4 py-2 text-xs">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="font-medium text-muted-foreground">
+              Eigenverbrauch dieses MA
+            </span>
+            <span className="tabular-nums">
+              {u.internalUseCount} Position
+              {u.internalUseCount === 1 ? "" : "en"} ·{" "}
+              <strong>{formatEUR(u.internalUseGross)}</strong> r2o-Wert
+              {u.internalUseCogs > 0 && (
+                <>
+                  {" · "}echter Wareneinsatz{" "}
+                  <strong>{formatEUR(u.internalUseCogs)}</strong>
+                </>
+              )}
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

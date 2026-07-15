@@ -222,10 +222,18 @@ export type CalculationResult = {
   byUser: Array<{
     user_id: number | null;
     name: string;
-    revenue: number;
+    revenue: number; // brutto (ohne TG, ohne Eigenverbrauch)
+    revenueNet: number; // netto — Basis der Provision
     invoiceCount: number;
-    commission: number;
+    itemCount: number; // Stück (Kunden-Items)
+    tips: number; // Trinkgeld, separat (kein Umsatz)
+    commissionPct: number | null; // z.B. 25
+    commission: number; // Auszahlung an den MA (ohne LNK)
+    commissionInklLnk: number; // Was den Chef kostet (inkl. LNK)
     isCommissionStaff: boolean;
+    internalUseGross: number; // r2o-Brutto der Eigenverbrauchs-Belege dieses MA
+    internalUseCogs: number; // echter Wareneinsatz der Eigenverbrauchs-Belege
+    internalUseCount: number; // Anzahl Eigenverbrauchs-Positionen
   }>;
   byPayment: Array<{
     payment_id: number | null;
@@ -626,16 +634,58 @@ export async function calculateForPeriod(
   // Per-User — Eigenverbrauch ausschliessen (sonst weicht Summe vom Gesamtumsatz ab)
   const userAcc = new Map<
     number | null,
-    { revenue: number; invoiceCount: number }
+    { revenue: number; invoiceCount: number; tips: number }
   >();
   for (const i of invs) {
     if (internalInvoiceIds.has(i.invoice_id)) continue;
     const k = i.user_id;
-    const a = userAcc.get(k) ?? { revenue: 0, invoiceCount: 0 };
-    a.revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
+    const a = userAcc.get(k) ?? { revenue: 0, invoiceCount: 0, tips: 0 };
+    const tip = Number(i.invoice_total_tip ?? 0);
+    a.revenue += Number(i.invoice_total ?? 0) - tip;
     a.invoiceCount += 1;
+    a.tips += tip;
     userAcc.set(k, a);
   }
+
+  // Eigenverbrauch pro User (r2o-Brutto der Eigenverbrauchs-Belege)
+  const internalGrossByUser = new Map<number | null, number>();
+  for (const i of invs) {
+    if (!internalInvoiceIds.has(i.invoice_id)) continue;
+    const k = i.user_id;
+    internalGrossByUser.set(
+      k,
+      (internalGrossByUser.get(k) ?? 0) + Number(i.invoice_total ?? 0),
+    );
+    // Erfasse auch User im userAcc (mit Umsatz 0), damit MA mit reinem
+    // Eigenverbrauch nicht aus der Liste fallen.
+    if (!userAcc.has(k)) userAcc.set(k, { revenue: 0, invoiceCount: 0, tips: 0 });
+  }
+
+  // Item-Aggregation pro User (Stück verkauft + Eigenverbrauch-COGS)
+  const invoiceUserById = new Map<number, number | null>();
+  for (const i of invs) invoiceUserById.set(i.invoice_id, i.user_id);
+  const itemsQtyByUser = new Map<number | null, number>();
+  const internalCogsByUser = new Map<number | null, number>();
+  const internalCountByUser = new Map<number | null, number>();
+  for (const it of its) {
+    if (it.product_id == null) continue;
+    if (!paidInvoiceIdsForCogs.has(it.invoice_id)) continue;
+    const uid = it.user_id ?? invoiceUserById.get(it.invoice_id) ?? null;
+    const qty = Number(it.item_quantity ?? it.item_qty ?? 0);
+    const cp = costByProduct.get(it.product_id);
+    if (internalInvoiceIds.has(it.invoice_id)) {
+      internalCountByUser.set(uid, (internalCountByUser.get(uid) ?? 0) + 1);
+      if (cp != null && it.item_quantity != null) {
+        internalCogsByUser.set(
+          uid,
+          (internalCogsByUser.get(uid) ?? 0) + cp * Number(it.item_quantity),
+        );
+      }
+    } else {
+      itemsQtyByUser.set(uid, (itemsQtyByUser.get(uid) ?? 0) + qty);
+    }
+  }
+
   const staffByR2oId = new Map<number, StaffCost>();
   for (const s of staff ?? [])
     if (s.r2o_user_id != null) staffByR2oId.set(s.r2o_user_id, s);
@@ -645,17 +695,27 @@ export async function calculateForPeriod(
       const sStaff = uid != null ? staffByR2oId.get(uid) : undefined;
       const isCommissionStaff =
         sStaff?.commission_pct != null && sStaff.commission_pct > 0;
-      // Provision auf Netto-Basis berechnen
       const userRevNet = uid != null ? (revenueNetByUser.get(uid) ?? 0) : 0;
       return {
         user_id: uid,
         name:
           uid != null ? (r2oNameById.get(uid) ?? `#${uid}`) : "(ohne User)",
         revenue: v.revenue,
+        revenueNet: userRevNet,
         invoiceCount: v.invoiceCount,
+        itemCount: itemsQtyByUser.get(uid) ?? 0,
+        tips: v.tips,
+        commissionPct: sStaff?.commission_pct ?? null,
         commission:
           sStaff && isCommissionStaff ? staffCommission(sStaff, userRevNet) : 0,
+        commissionInklLnk:
+          sStaff && isCommissionStaff
+            ? staffCommissionWithEmployerCost(sStaff, userRevNet)
+            : 0,
         isCommissionStaff: !!isCommissionStaff,
+        internalUseGross: internalGrossByUser.get(uid) ?? 0,
+        internalUseCogs: internalCogsByUser.get(uid) ?? 0,
+        internalUseCount: internalCountByUser.get(uid) ?? 0,
       };
     })
     .sort((a, b) => b.revenue - a.revenue);
