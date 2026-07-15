@@ -23,6 +23,7 @@ import {
 import { ResultLedger } from "@/components/result-ledger";
 import { KpiCards } from "@/components/kpi-cards";
 import { DashboardCharts } from "@/components/dashboard-charts";
+import { MonthPicker, RangePicker } from "@/components/period-pickers";
 import type {
   Location,
   StockByLocation,
@@ -88,10 +89,11 @@ function parseCustomPeriod(
   fromStr: string | undefined,
   toStr: string | undefined,
 ): Period | null {
-  const from = parseDateInput(fromStr);
-  const to = parseDateInput(toStr);
+  let from = parseDateInput(fromStr);
+  let to = parseDateInput(toStr);
   if (!from || !to) return null;
-  if (to < from) return null;
+  // Verkehrte Reihenfolge tolerieren: einfach tauschen.
+  if (to < from) [from, to] = [to, from];
   const toEnd = new Date(to);
   toEnd.setHours(23, 59, 59, 999);
   const days = Math.max(
@@ -1277,33 +1279,11 @@ function PeriodTabs({
         >
           Alle
         </Link>
-        <form
-          action="/dashboard"
-          method="get"
-          className="inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5"
-          style={
-            isMonth
-              ? { backgroundColor: "hsl(0 0% 9%)", color: "white", borderColor: "transparent" }
-              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
-          }
-        >
-          <CalendarIcon active={isMonth} />
-          <input
-            type="month"
-            name="month"
-            defaultValue={defaultMonth}
-            aria-label="Monat"
-            className="border-none bg-transparent p-0 text-sm font-medium outline-none"
-            style={{ colorScheme: isMonth ? "dark" : "light" }}
-          />
-          <button
-            type="submit"
-            className="sr-only"
-            aria-label="Monat anwenden"
-          >
-            Anwenden
-          </button>
-        </form>
+        <MonthPicker
+          month={defaultMonth}
+          active={isMonth}
+          basePath="/dashboard"
+        />
         {isMonth && (
           <span className="text-xs text-muted-foreground">
             {monthLabel}
@@ -1334,68 +1314,17 @@ function PeriodTabs({
             </Link>
           );
         })}
-        <form
-          action="/dashboard"
-          method="get"
-          className="ml-auto inline-flex items-center gap-1 rounded-md border px-3 py-1.5"
-          style={
-            isCustom
-              ? {
-                  backgroundColor: "hsl(0 0% 9%)",
-                  color: "white",
-                  borderColor: "transparent",
-                }
-              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
-          }
-        >
-          <CalendarIcon active={isCustom} />
-          <input
-            type="date"
-            name="from"
-            defaultValue={from ?? ""}
-            aria-label="Von"
-            className="border-none bg-transparent p-0 text-sm outline-none"
-            style={{ colorScheme: isCustom ? "dark" : "light" }}
-          />
-          <span className={isCustom ? "text-white/70" : "text-muted-foreground"}>–</span>
-          <input
-            type="date"
-            name="to"
-            defaultValue={to ?? ""}
-            aria-label="Bis"
-            className="border-none bg-transparent p-0 text-sm outline-none"
-            style={{ colorScheme: isCustom ? "dark" : "light" }}
-          />
-          <button type="submit" className="sr-only">
-            Anwenden
-          </button>
-        </form>
+        <RangePicker
+          from={from}
+          to={to}
+          active={isCustom}
+          basePath="/dashboard"
+        />
       </div>
     </div>
   );
 }
 
-function CalendarIcon({ active }: { active?: boolean }) {
-  return (
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="h-4 w-4 shrink-0"
-      style={{ opacity: active ? 1 : 0.7 }}
-      aria-hidden
-    >
-      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-      <line x1="16" y1="2" x2="16" y2="6" />
-      <line x1="8" y1="2" x2="8" y2="6" />
-      <line x1="3" y1="10" x2="21" y2="10" />
-    </svg>
-  );
-}
 
 // Detaillierte Auszahlungs-Card pro Mitarbeiter (Provision + LNK + Eigenverbrauch + Trinkgeld).
 function StaffCard({
