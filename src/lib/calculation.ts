@@ -243,6 +243,7 @@ export type CalculationResult = {
       lastAt: string; // "20:45"
       invoiceCount: number;
       revenue: number; // brutto ohne TG
+      revenueNet: number; // netto ohne TG — Provisions-Basis des Tages
     }>;
   }>;
   byPayment: Array<{
@@ -339,6 +340,7 @@ export async function calculateForPeriod(
     { data: paymentMethods },
     { data: r2oProducts },
     { data: productGroups },
+    { data: reassignments },
   ] = await Promise.all([
     supabase
       .from("r2o_invoices")
@@ -398,7 +400,34 @@ export async function calculateForPeriod(
       .select("productgroup_id, productgroup_name")
       .eq("owner_id", ownerId)
       .returns<ProductGroupRow[]>(),
+    supabase
+      .from("bb_commission_reassignments")
+      .select("work_date, from_r2o_user_id, to_r2o_user_id")
+      .eq("owner_id", ownerId)
+      .returns<
+        {
+          work_date: string;
+          from_r2o_user_id: number;
+          to_r2o_user_id: number;
+        }[]
+      >(),
   ]);
+
+  // Tages-Umbuchungen: Belege eines Wien-Kalendertags von einem r2o-User auf
+  // einen anderen Mitarbeiter umleiten. Der effektive User wird VOR allen
+  // User-Aggregationen bestimmt und gilt damit überall (byUser, Provision,
+  // Arbeitszeiten, Eigenverbrauch).
+  const viennaDayKey = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Vienna",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const reassignMap = new Map<string, number>();
+  for (const r of reassignments ?? []) {
+    reassignMap.set(`${r.work_date}|${r.from_r2o_user_id}`, r.to_r2o_user_id);
+  }
+  const effUserByInvoice = new Map<number, number | null>();
 
   // Eigenverbrauch-Payment-Methods erkennen (R2O zaehlt sie nicht zum Gesamtumsatz)
   const internalUsePaymentIds = new Set<number>();
@@ -427,6 +456,18 @@ export async function calculateForPeriod(
 
   const invs = invoices ?? [];
   const its = items ?? [];
+
+  // Effektiven User pro Beleg auflösen (Umbuchungen anwenden).
+  for (const i of invs) {
+    let uid = i.user_id;
+    if (uid != null && i.invoice_paid_date && reassignMap.size > 0) {
+      const day = viennaDayKey.format(new Date(i.invoice_paid_date));
+      uid = reassignMap.get(`${day}|${uid}`) ?? uid;
+    }
+    effUserByInvoice.set(i.invoice_id, uid);
+  }
+  const effUser = (invoiceId: number): number | null =>
+    effUserByInvoice.get(invoiceId) ?? null;
 
   // Lookups
   const costByProduct = new Map<number, number>();
@@ -539,14 +580,15 @@ export async function calculateForPeriod(
   const revenueNetByUser = new Map<number, number>();
   for (const i of invs) {
     if (internalInvoiceIds.has(i.invoice_id)) continue;
-    if (i.user_id != null) {
+    const uid = effUser(i.invoice_id);
+    if (uid != null) {
       revenueByUser.set(
-        i.user_id,
-        (revenueByUser.get(i.user_id) ?? 0) + Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0),
+        uid,
+        (revenueByUser.get(uid) ?? 0) + Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0),
       );
       revenueNetByUser.set(
-        i.user_id,
-        (revenueNetByUser.get(i.user_id) ?? 0) +
+        uid,
+        (revenueNetByUser.get(uid) ?? 0) +
           Number(i.invoice_total_net ?? 0) -
           Number(i.invoice_total_tip ?? 0),
       );
@@ -673,7 +715,7 @@ export async function calculateForPeriod(
   >();
   for (const i of invs) {
     if (internalInvoiceIds.has(i.invoice_id)) continue;
-    const k = i.user_id;
+    const k = effUser(i.invoice_id);
     const a = userAcc.get(k) ?? { revenue: 0, invoiceCount: 0, tips: 0 };
     const tip = Number(i.invoice_total_tip ?? 0);
     a.revenue += Number(i.invoice_total ?? 0) - tip;
@@ -686,7 +728,7 @@ export async function calculateForPeriod(
   const internalGrossByUser = new Map<number | null, number>();
   for (const i of invs) {
     if (!internalInvoiceIds.has(i.invoice_id)) continue;
-    const k = i.user_id;
+    const k = effUser(i.invoice_id);
     internalGrossByUser.set(
       k,
       (internalGrossByUser.get(k) ?? 0) + Number(i.invoice_total ?? 0),
@@ -697,15 +739,14 @@ export async function calculateForPeriod(
   }
 
   // Item-Aggregation pro User (Stück verkauft + Eigenverbrauch-COGS)
-  const invoiceUserById = new Map<number, number | null>();
-  for (const i of invs) invoiceUserById.set(i.invoice_id, i.user_id);
+  const invoiceUserById = effUserByInvoice;
   const itemsQtyByUser = new Map<number | null, number>();
   const internalCogsByUser = new Map<number | null, number>();
   const internalCountByUser = new Map<number | null, number>();
   for (const it of its) {
     if (it.product_id == null) continue;
     if (!paidInvoiceIdsForCogs.has(it.invoice_id)) continue;
-    const uid = it.user_id ?? invoiceUserById.get(it.invoice_id) ?? null;
+    const uid = invoiceUserById.get(it.invoice_id) ?? it.user_id ?? null;
     const qty = Number(it.item_quantity ?? it.item_qty ?? 0);
     const cp = costByProduct.get(it.product_id);
     if (internalInvoiceIds.has(it.invoice_id)) {
@@ -736,13 +777,22 @@ export async function calculateForPeriod(
   });
   const workAcc = new Map<
     number | null,
-    Map<string, { first: Date; last: Date; count: number; revenue: number }>
+    Map<
+      string,
+      {
+        first: Date;
+        last: Date;
+        count: number;
+        revenue: number;
+        revenueNet: number;
+      }
+    >
   >();
   for (const i of invs) {
     if (!i.invoice_paid_date) continue;
     const d = new Date(i.invoice_paid_date);
     const day = viennaDay.format(d);
-    const uid = i.user_id;
+    const uid = effUser(i.invoice_id);
     const isInternal = internalInvoiceIds.has(i.invoice_id);
     let days = workAcc.get(uid);
     if (!days) {
@@ -750,16 +800,23 @@ export async function calculateForPeriod(
       workAcc.set(uid, days);
     }
     const acc = days.get(day);
-    const rev = isInternal
-      ? 0
-      : Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
+    const tip = Number(i.invoice_total_tip ?? 0);
+    const rev = isInternal ? 0 : Number(i.invoice_total ?? 0) - tip;
+    const revNet = isInternal ? 0 : Number(i.invoice_total_net ?? 0) - tip;
     if (!acc) {
-      days.set(day, { first: d, last: d, count: isInternal ? 0 : 1, revenue: rev });
+      days.set(day, {
+        first: d,
+        last: d,
+        count: isInternal ? 0 : 1,
+        revenue: rev,
+        revenueNet: revNet,
+      });
     } else {
       if (d < acc.first) acc.first = d;
       if (d > acc.last) acc.last = d;
       if (!isInternal) acc.count += 1;
       acc.revenue += rev;
+      acc.revenueNet += revNet;
     }
   }
   function workDaysFor(uid: number | null) {
@@ -776,6 +833,7 @@ export async function calculateForPeriod(
           lastAt: viennaTime.format(w.last),
           invoiceCount: w.count,
           revenue: w.revenue,
+          revenueNet: w.revenueNet,
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
@@ -865,11 +923,13 @@ export async function calculateForPeriod(
         qty,
         revenue: val,
         timestamp: it.item_timestamp ?? null,
-        user_id: it.user_id ?? null,
-        user_name:
-          it.user_id != null
-            ? (r2oNameById.get(it.user_id) ?? `User #${it.user_id}`)
-            : "(ohne User)",
+        user_id: invoiceUserById.get(it.invoice_id) ?? it.user_id ?? null,
+        user_name: (() => {
+          const uid = invoiceUserById.get(it.invoice_id) ?? it.user_id;
+          return uid != null
+            ? (r2oNameById.get(uid) ?? `User #${uid}`)
+            : "(ohne User)";
+        })(),
       });
       continue;
     }
