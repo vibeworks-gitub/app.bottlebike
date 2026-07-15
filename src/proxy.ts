@@ -1,10 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/api"];
+export async function proxy(req: NextRequest) {
+  let res = NextResponse.next({ request: req });
+  const path = req.nextUrl.pathname;
 
-export async function proxy(request: NextRequest) {
-  let response = NextResponse.next({ request });
+  if (
+    path.startsWith("/_next") ||
+    path.startsWith("/login") ||
+    path.startsWith("/auth") ||
+    path.startsWith("/api") ||
+    path === "/favicon.ico"
+  ) {
+    return res;
+  }
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -12,15 +21,15 @@ export async function proxy(request: NextRequest) {
     {
       cookies: {
         getAll() {
-          return request.cookies.getAll();
+          return req.cookies.getAll();
         },
         setAll(cookiesToSet) {
           cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value),
+            req.cookies.set(name, value),
           );
-          response = NextResponse.next({ request });
+          res = NextResponse.next({ request: req });
           cookiesToSet.forEach(({ name, value, options }) =>
-            response.cookies.set(name, value, options),
+            res.cookies.set(name, value, options),
           );
         },
       },
@@ -30,24 +39,31 @@ export async function proxy(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-  const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
-
-  if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    url.searchParams.set("next", pathname);
-    return NextResponse.redirect(url);
+  if (!user) {
+    return NextResponse.redirect(new URL("/login", req.url));
   }
 
-  if (user && pathname === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/dashboard";
-    return NextResponse.redirect(url);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("role,active")
+    .eq("id", user.id)
+    .single();
+
+  if (!profile?.active) {
+    return NextResponse.redirect(new URL("/login?deactivated=1", req.url));
   }
 
-  return response;
+  const isCrew = profile.role === "crew";
+  const inCrewArea = path.startsWith("/crew");
+
+  if (isCrew && !inCrewArea) {
+    return NextResponse.redirect(new URL("/crew", req.url));
+  }
+  if (!isCrew && inCrewArea) {
+    return NextResponse.redirect(new URL("/dashboard", req.url));
+  }
+
+  return res;
 }
 
 export const config = {

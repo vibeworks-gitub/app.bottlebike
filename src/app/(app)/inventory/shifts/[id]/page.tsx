@@ -28,6 +28,7 @@ import type {
   StockMovement,
 } from "@/lib/types/database";
 import { EndShiftForm } from "./end-shift-form";
+import { ShiftCountRow } from "./shift-count-row";
 
 const dt = new Intl.DateTimeFormat("de-DE", { timeZone: "Europe/Vienna",
   dateStyle: "short",
@@ -312,6 +313,55 @@ export default async function ShiftDetailPage({
   const cashDiff =
     shift.end_cash_eur != null ? shift.end_cash_eur - expectedCash : null;
 
+  // Differenz-Tabelle (Owner): pro gezähltem Produkt Start-IST, Zu-/Abgang,
+  // End-SOLL, End-IST, Differenz und Klärungs-Status.
+  const countProductIds = Array.from(
+    new Set(
+      (counts ?? [])
+        .map((c) => c.r2o_product_id)
+        .filter((x): x is number => x != null),
+    ),
+  );
+  const countRows = countProductIds.map((pid) => {
+    const startC = counts?.find(
+      (c) => c.r2o_product_id === pid && c.count_type === "start",
+    );
+    const endC = counts?.find(
+      (c) => c.r2o_product_id === pid && c.count_type === "end",
+    );
+    const inflow = (movements ?? [])
+      .filter(
+        (m) =>
+          m.r2o_product_id === pid &&
+          m.type !== "sale" &&
+          Number(m.quantity) > 0,
+      )
+      .reduce((s, m) => s + Number(m.quantity), 0);
+    const outflow = (movements ?? [])
+      .filter((m) => m.r2o_product_id === pid && m.type === "sale")
+      .reduce((s, m) => s + Number(m.quantity), 0);
+    const expectedQty = endC?.expected_qty;
+    const clearedAt = endC?.cleared_at;
+    const clearedNotes = (endC as unknown as { cleared_notes?: string | null } | undefined)
+      ?.cleared_notes;
+    return {
+      productId: pid,
+      name: productMap.get(pid) ?? `#${pid}`,
+      startIst: startC ? Number(startC.counted_qty) : null,
+      inflow,
+      outflow,
+      endSoll: endC && expectedQty != null ? Number(expectedQty) : null,
+      endIst: endC ? Number(endC.counted_qty) : null,
+      endDiff:
+        endC && expectedQty != null
+          ? Number(endC.counted_qty) - Number(expectedQty)
+          : null,
+      endCountId: endC?.id ?? null,
+      cleared: clearedAt != null,
+      notes: clearedNotes ?? "",
+    };
+  });
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -523,6 +573,31 @@ export default async function ShiftDetailPage({
             <p className="whitespace-pre-wrap text-sm">{shift.end_notes}</p>
           </CardContent>
         </Card>
+      )}
+
+      {countRows.length > 0 && (
+        <section className="mt-8">
+          <h2 className="mb-3 text-lg font-semibold">Bestandszählung</h2>
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-muted-foreground">
+              <tr>
+                <th className="py-2">Produkt</th>
+                <th className="text-right">Start-IST</th>
+                <th className="text-right">Zugang</th>
+                <th className="text-right">Abgang</th>
+                <th className="text-right">End-SOLL</th>
+                <th className="text-right">End-IST</th>
+                <th className="text-right">Diff</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              {countRows.map((r) => (
+                <ShiftCountRow key={r.productId} row={r} />
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
 
       <div>

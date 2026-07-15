@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { getCurrentUser } from "@/lib/auth/role";
 import { createClient } from "@/lib/supabase/server";
 
 function str(v: FormDataEntryValue | null): string | null {
@@ -104,6 +105,28 @@ export async function endShift(
   revalidatePath(`/inventory/shifts/${shiftId}`);
   revalidatePath("/inventory");
   redirect(`/inventory/shifts/${shiftId}`);
+}
+
+export async function clearCountDifference(
+  countId: string,
+  notes: string,
+) {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "owner")
+    return { ok: false as const, error: "Nicht berechtigt" };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("bb_shift_counts")
+    .update({
+      cleared_at: new Date().toISOString(),
+      cleared_by: user.authUserId,
+      cleared_notes: notes,
+    })
+    .eq("id", countId)
+    .eq("owner_id", user.ownerId);
+  if (error) return { ok: false as const, error: error.message };
+  revalidatePath(`/inventory/shifts`);
+  return { ok: true as const };
 }
 
 export async function deleteShift(formData: FormData) {
