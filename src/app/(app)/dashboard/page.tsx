@@ -529,13 +529,18 @@ export default async function DashboardPage({
           { label: "Umsatz netto", value: calc.revenueNet },
           { label: "Rohertrag", value: calc.grossProfit },
           {
-            label: "Personalkosten",
-            value:
-              calc.staffCommissionEmployee +
-              calc.staffEmployerExtras +
-              calc.staffFixed,
+            label: "Provision (an MA)",
+            value: calc.staffCommissionEmployee,
             muted: true,
           },
+          {
+            label: "Lohnnebenkosten",
+            value: calc.staffEmployerExtras,
+            muted: true,
+          },
+          ...(calc.staffFixed > 0
+            ? [{ label: "Personal-Fix", value: calc.staffFixed, muted: true }]
+            : []),
           { label: "Wareneinsatz", value: calc.cogs, muted: true },
           { label: "Fixkosten", value: calc.fixedCosts, muted: true },
           { label: "Gewinn", value: calc.profit },
@@ -1411,6 +1416,14 @@ function StaffCard({
     internalUseGross: number;
     internalUseCogs: number;
     internalUseCount: number;
+    workDays: Array<{
+      date: string;
+      label: string;
+      firstAt: string;
+      lastAt: string;
+      invoiceCount: number;
+      revenue: number;
+    }>;
   };
 }) {
   const lnk = u.commissionInklLnk - u.commission;
@@ -1507,6 +1520,33 @@ function StaffCard({
           )}
         </div>
       </div>
+
+      {u.workDays.length > 0 && (
+        <div className="border-t px-4 py-3">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Arbeitszeiten (erste – letzte Rechnung des Tages)
+          </p>
+          <div className="space-y-1">
+            {u.workDays.map((w) => (
+              <div
+                key={w.date}
+                className="flex flex-wrap items-baseline justify-between gap-2 text-xs"
+              >
+                <span className="w-20 font-medium">{w.label}</span>
+                <span className="tabular-nums">
+                  {w.firstAt} – {w.lastAt} Uhr
+                </span>
+                <span className="tabular-nums text-muted-foreground">
+                  {w.invoiceCount} Belege
+                </span>
+                <span className="w-20 text-right tabular-nums text-muted-foreground">
+                  {formatEUR(w.revenue)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {u.internalUseCount > 0 && (
         <div className="border-t bg-muted/20 px-4 py-2 text-xs">

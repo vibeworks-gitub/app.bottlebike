@@ -235,6 +235,15 @@ export type CalculationResult = {
     internalUseGross: number; // r2o-Brutto der Eigenverbrauchs-Belege dieses MA
     internalUseCogs: number; // echter Wareneinsatz der Eigenverbrauchs-Belege
     internalUseCount: number; // Anzahl Eigenverbrauchs-Positionen
+    // Arbeitstage: erste/letzte Rechnung pro Tag (Wien-Zeit) = gearbeiteter Zeitraum
+    workDays: Array<{
+      date: string; // YYYY-MM-DD (Wien)
+      label: string; // "28.06. Sa"
+      firstAt: string; // "10:15"
+      lastAt: string; // "20:45"
+      invoiceCount: number;
+      revenue: number; // brutto ohne TG
+    }>;
   }>;
   byPayment: Array<{
     payment_id: number | null;
@@ -712,6 +721,66 @@ export async function calculateForPeriod(
     }
   }
 
+  // Arbeitstage pro User: erste/letzte Rechnung pro Wien-Kalendertag.
+  // Kunden-Belege UND Eigenverbrauch zählen als "gearbeitet" (beide sind Aktivität an der Kasse).
+  const viennaDay = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Europe/Vienna",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }); // sv-SE → YYYY-MM-DD
+  const viennaTime = new Intl.DateTimeFormat("de-AT", {
+    timeZone: "Europe/Vienna",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const workAcc = new Map<
+    number | null,
+    Map<string, { first: Date; last: Date; count: number; revenue: number }>
+  >();
+  for (const i of invs) {
+    if (!i.invoice_paid_date) continue;
+    const d = new Date(i.invoice_paid_date);
+    const day = viennaDay.format(d);
+    const uid = i.user_id;
+    const isInternal = internalInvoiceIds.has(i.invoice_id);
+    let days = workAcc.get(uid);
+    if (!days) {
+      days = new Map();
+      workAcc.set(uid, days);
+    }
+    const acc = days.get(day);
+    const rev = isInternal
+      ? 0
+      : Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
+    if (!acc) {
+      days.set(day, { first: d, last: d, count: isInternal ? 0 : 1, revenue: rev });
+    } else {
+      if (d < acc.first) acc.first = d;
+      if (d > acc.last) acc.last = d;
+      if (!isInternal) acc.count += 1;
+      acc.revenue += rev;
+    }
+  }
+  function workDaysFor(uid: number | null) {
+    const days = workAcc.get(uid);
+    if (!days) return [];
+    return Array.from(days.entries())
+      .map(([date, w]) => {
+        const [y, m, dd] = date.split("-").map(Number);
+        const dt = new Date(y, m - 1, dd);
+        return {
+          date,
+          label: `${String(dd).padStart(2, "0")}.${String(m).padStart(2, "0")}. ${WEEKDAY_LABELS[dt.getDay()]}`,
+          firstAt: viennaTime.format(w.first),
+          lastAt: viennaTime.format(w.last),
+          invoiceCount: w.count,
+          revenue: w.revenue,
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
   const staffByR2oId = new Map<number, StaffCost>();
   for (const s of staff ?? [])
     if (s.r2o_user_id != null) staffByR2oId.set(s.r2o_user_id, s);
@@ -742,6 +811,7 @@ export async function calculateForPeriod(
         internalUseGross: internalGrossByUser.get(uid) ?? 0,
         internalUseCogs: internalCogsByUser.get(uid) ?? 0,
         internalUseCount: internalCountByUser.get(uid) ?? 0,
+        workDays: workDaysFor(uid),
       };
     })
     .sort((a, b) => b.revenue - a.revenue);
