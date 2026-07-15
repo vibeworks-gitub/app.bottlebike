@@ -17,7 +17,11 @@ import {
   staffCommission,
   staffCommissionWithEmployerCost,
 } from "@/lib/cost-math";
-import { periodFor, type PeriodPreset } from "@/lib/calculation";
+import {
+  calculateForPeriod,
+  periodFor,
+  type PeriodPreset,
+} from "@/lib/calculation";
 import type { StaffCost } from "@/lib/types/database";
 import { deleteStaffCost } from "./actions";
 
@@ -57,7 +61,7 @@ export default async function StaffPage({
     integration?.accounting_start_date ?? null,
   );
 
-  const [{ data: staff }, { data: r2oUsers }, { data: invoices }, { data: payments }] = await Promise.all([
+  const [{ data: staff }, { data: r2oUsers }] = await Promise.all([
     supabase
       .from("bb_staff_costs")
       .select("*")
@@ -66,42 +70,22 @@ export default async function StaffPage({
     supabase
       .from("r2o_users")
       .select("r2o_user_id, user_first_name, user_last_name, user_username"),
-    // Bezahlte Umsatz-Belege im Zeitraum, für Provisions-Berechnung pro r2o-User.
-    supabase
-      .from("r2o_invoices")
-      .select(
-        "invoice_id, invoice_total_net, invoice_total_tip, user_id, payment_method_id, invoice_paid, invoice_paid_date, invoice_deleted_at, invoice_test_mode",
-      )
-      .eq("invoice_paid", true)
-      .gte("invoice_paid_date", period.from.toISOString())
-      .lte("invoice_paid_date", period.to.toISOString()),
-    supabase.from("r2o_payment_methods").select("payment_id, payment_name"),
   ]);
 
-  // Eigenverbrauchs-Zahlungsmethode ausschliessen (dieselbe Regel wie im Dashboard)
-  const internalPaymentIds = new Set<number>();
-  for (const p of payments ?? []) {
-    const name = (p.payment_name ?? "").toLowerCase();
-    if (name.includes("eigenverbrauch") || name.includes("internal"))
-      internalPaymentIds.add(p.payment_id as number);
-  }
-
+  // Netto-Umsatz pro r2o-User zentral über calculateForPeriod — damit greifen
+  // Umbuchungen (bb_commission_reassignments), Eigenverbrauchs- und
+  // Trinkgeld-Regeln exakt wie auf Dashboard und Abrechnung.
   const netByR2oUser = new Map<number, number>();
-  for (const i of invoices ?? []) {
-    if (i.invoice_deleted_at) continue;
-    if (i.invoice_test_mode) continue;
-    if (
-      i.payment_method_id != null &&
-      internalPaymentIds.has(i.payment_method_id as number)
-    )
-      continue;
-    if (i.user_id == null) continue;
-    const net =
-      Number(i.invoice_total_net ?? 0) - Number(i.invoice_total_tip ?? 0);
-    netByR2oUser.set(
-      i.user_id as number,
-      (netByR2oUser.get(i.user_id as number) ?? 0) + net,
+  if (user) {
+    const calc = await calculateForPeriod(
+      supabase,
+      user.id,
+      period,
+      integration?.accounting_start_date ?? null,
     );
+    for (const u of calc.byUser) {
+      if (u.user_id != null) netByR2oUser.set(u.user_id, u.revenueNet);
+    }
   }
 
   const r2oName = new Map<number, string>();
