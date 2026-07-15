@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -40,6 +40,9 @@ export function StaffForm({
     {},
   );
   const today = new Date().toISOString().slice(0, 10);
+  // Austritt kontrolliert führen, damit er per X-Button leerbar ist
+  // (native Date-Inputs haben am Mac keinen Löschen-Knopf).
+  const [endDate, setEndDate] = useState(initial?.end_date ?? "");
 
   return (
     <form action={formAction} className="flex flex-col gap-6">
@@ -198,12 +201,29 @@ export function StaffForm({
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="end_date">Austritt (optional)</Label>
-            <Input
-              id="end_date"
-              name="end_date"
-              type="date"
-              defaultValue={initial?.end_date ?? ""}
-            />
+            <div className="flex items-center gap-1.5">
+              <Input
+                id="end_date"
+                name="end_date"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+              />
+              {endDate !== "" && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label="Austritt leeren"
+                  onClick={() => setEndDate("")}
+                >
+                  ✕
+                </Button>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Leer lassen = unbefristet / offen.
+            </p>
           </div>
           <div className="md:col-span-2 flex flex-col gap-1.5">
             <Label htmlFor="notes">Notizen</Label>
