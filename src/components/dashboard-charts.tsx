@@ -268,7 +268,7 @@ function PaymentDonut({ data }: { data: PieDatum[] }) {
 // -----------------------------------------------------------------------------
 // Tages-Balken — vertikal, einfarbig, mit Hover-Werten oben.
 // -----------------------------------------------------------------------------
-function DailyBarChart({ data }: { data: DailyDatum[] }) {
+export function DailyBarChart({ data }: { data: DailyDatum[] }) {
   const [hover, setHover] = useState<number | null>(null);
   const max = Math.max(...data.map((d) => d.revenue), 1);
   const total = data.reduce((s, d) => s + d.revenue, 0);
