@@ -20,6 +20,7 @@ const NAV: Array<{ href: string; label: string; badge?: string; group?: string }
   { href: "/inventory/thresholds", label: "Mindestbestand", group: "Inventar" },
   { href: "/fixed-costs", label: "Fixkosten", group: "Kalkulation" },
   { href: "/staff", label: "Personal", group: "Kalkulation" },
+  { href: "/staff/payroll", label: "Abrechnung", group: "Kalkulation" },
   { href: "/calculation", label: "Auswertung", group: "Kalkulation" },
   { href: "/integrations/ready2order", label: "ready2order", group: "Integrationen" },
 ];
