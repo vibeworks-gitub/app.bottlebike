@@ -219,6 +219,7 @@ export type CalculationResult = {
   // Aufschlüsselungen
   byWeekday: Array<{ dow: number; label: string; revenue: number; count: number }>;
   byHour: Array<{ hour: number; revenue: number; count: number }>;
+  byDay: Array<{ date: string; label: string; revenue: number; count: number }>;
   byUser: Array<{
     user_id: number | null;
     name: string;
@@ -631,6 +632,31 @@ export async function calculateForPeriod(
     byHourAcc[d.getHours()].count += 1;
   }
 
+  // Tages-Aggregation (für Balken-Chart über den Zeitraum)
+  const byDayAcc = new Map<string, { revenue: number; count: number }>();
+  for (const i of invs) {
+    if (internalInvoiceIds.has(i.invoice_id)) continue;
+    if (!i.invoice_paid_date) continue;
+    const d = new Date(i.invoice_paid_date);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const a = byDayAcc.get(key) ?? { revenue: 0, count: 0 };
+    a.revenue += Number(i.invoice_total ?? 0) - Number(i.invoice_total_tip ?? 0);
+    a.count += 1;
+    byDayAcc.set(key, a);
+  }
+  const byDay = Array.from(byDayAcc.entries())
+    .map(([date, v]) => {
+      const [y, m, d] = date.split("-").map(Number);
+      const dt = new Date(y, m - 1, d);
+      return {
+        date,
+        label: `${String(d).padStart(2, "0")}.${String(m).padStart(2, "0")}. ${WEEKDAY_LABELS[dt.getDay()]}`,
+        revenue: v.revenue,
+        count: v.count,
+      };
+    })
+    .sort((a, b) => a.date.localeCompare(b.date));
+
   // Per-User — Eigenverbrauch ausschliessen (sonst weicht Summe vom Gesamtumsatz ab)
   const userAcc = new Map<
     number | null,
@@ -862,6 +888,7 @@ export async function calculateForPeriod(
     dailyBreakEven,
     byWeekday,
     byHour: byHourAcc,
+    byDay,
     byUser,
     byPayment,
     byProductGroup,

@@ -22,6 +22,7 @@ import {
 } from "@/lib/calculation";
 import { ResultLedger } from "@/components/result-ledger";
 import { KpiCards } from "@/components/kpi-cards";
+import { DashboardCharts } from "@/components/dashboard-charts";
 import type {
   Location,
   StockByLocation,
@@ -519,6 +520,34 @@ export default async function DashboardPage({
 
       {/* Kern-KPIs auf einen Blick */}
       <KpiCards calc={calc} />
+
+      {/* Visuelle Übersicht: KPI-Balken, Zahlungsarten-Donut, Tages-Balken */}
+      <DashboardCharts
+        kpis={[
+          { label: "Umsatz brutto", value: calc.revenue },
+          { label: "Umsatz netto", value: calc.revenueNet },
+          { label: "Rohertrag", value: calc.grossProfit },
+          {
+            label: "Personalkosten",
+            value:
+              calc.staffCommissionEmployee +
+              calc.staffEmployerExtras +
+              calc.staffFixed,
+            muted: true,
+          },
+          { label: "Wareneinsatz", value: calc.cogs, muted: true },
+          { label: "Fixkosten", value: calc.fixedCosts, muted: true },
+          { label: "Gewinn", value: calc.profit },
+        ]}
+        payments={calc.byPayment
+          .filter((p) => p.revenue > 0)
+          .map((p) => ({ label: p.name, value: p.revenue }))}
+        daily={calc.byDay.map((d) => ({
+          date: d.date,
+          label: d.label,
+          revenue: d.revenue,
+        }))}
+      />
 
       {/* Detaillierte Herleitung des Gewinns */}
       <Card>
