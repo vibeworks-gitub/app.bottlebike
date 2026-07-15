@@ -1,9 +1,11 @@
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { payoutDay, undoPayout, reassignDay } from "./actions";
 
+// Zwei-Klick-Bestätigung statt native confirm()-Dialoge (blockieren den Tab,
+// schlecht am Handy): erster Klick armiert den Button für 4 Sekunden.
 export function PayrollRowActions({
   workDate,
   r2oUserId,
@@ -18,17 +20,36 @@ export function PayrollRowActions({
   otherStaff: { r2o_user_id: number; name: string }[];
 }) {
   const [pending, start] = useTransition();
-  const [reassignTo, setReassignTo] = useState("");
+  const [armedUndo, setArmedUndo] = useState(false);
+  const [armedReassign, setArmedReassign] = useState<number | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  function arm(setter: () => void) {
+    if (timer.current) clearTimeout(timer.current);
+    setter();
+    timer.current = setTimeout(() => {
+      setArmedUndo(false);
+      setArmedReassign(null);
+    }, 4000);
+  }
 
   if (payoutId) {
     return (
       <Button
-        variant="ghost"
+        variant={armedUndo ? "destructive" : "ghost"}
         size="sm"
         disabled={pending}
-        style={{ color: "var(--destructive)" }}
+        style={armedUndo ? undefined : { color: "var(--destructive)" }}
         onClick={() => {
-          if (!confirm("Auszahlung wirklich zurücknehmen?")) return;
+          if (!armedUndo) {
+            arm(() => setArmedUndo(true));
+            return;
+          }
+          setArmedUndo(false);
           start(async () => {
             const res = await undoPayout(payoutId);
             if (res.ok) toast.success("Auszahlung zurückgenommen");
@@ -36,7 +57,7 @@ export function PayrollRowActions({
           });
         }}
       >
-        Rückgängig
+        {armedUndo ? "Wirklich zurücknehmen?" : "Rückgängig"}
       </Button>
     );
   }
@@ -58,34 +79,45 @@ export function PayrollRowActions({
           Auszahlen
         </Button>
       )}
-      {otherStaff.length > 0 && (
-        <select
-          className="h-8 rounded-md border bg-transparent px-1 text-xs"
-          value={reassignTo}
-          disabled={pending}
-          onChange={(e) => {
-            const to = Number(e.target.value);
-            setReassignTo("");
-            if (!to) return;
-            const name =
-              otherStaff.find((s) => s.r2o_user_id === to)?.name ?? "";
-            if (!confirm(`Tag ${workDate} wirklich zu ${name} umbuchen?`))
-              return;
-            start(async () => {
-              const res = await reassignDay(workDate, r2oUserId, to);
-              if (res.ok) toast.success(`Umgebucht zu ${name}`);
-              else toast.error(res.error);
-            });
-          }}
-        >
-          <option value="">MA ▾</option>
-          {otherStaff.map((s) => (
-            <option key={s.r2o_user_id} value={s.r2o_user_id}>
-              {s.name}
-            </option>
-          ))}
-        </select>
-      )}
+      {otherStaff.length > 0 &&
+        (armedReassign != null ? (
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={pending}
+            onClick={() => {
+              const to = armedReassign;
+              setArmedReassign(null);
+              const name =
+                otherStaff.find((s) => s.r2o_user_id === to)?.name ?? "";
+              start(async () => {
+                const res = await reassignDay(workDate, r2oUserId, to);
+                if (res.ok) toast.success(`Umgebucht zu ${name}`);
+                else toast.error(res.error);
+              });
+            }}
+          >
+            Zu {otherStaff.find((s) => s.r2o_user_id === armedReassign)?.name}?
+          </Button>
+        ) : (
+          <select
+            className="h-8 rounded-md border bg-transparent px-1 text-xs"
+            value=""
+            disabled={pending}
+            onChange={(e) => {
+              const to = Number(e.target.value);
+              if (!to) return;
+              arm(() => setArmedReassign(to));
+            }}
+          >
+            <option value="">MA ▾</option>
+            {otherStaff.map((s) => (
+              <option key={s.r2o_user_id} value={s.r2o_user_id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        ))}
     </div>
   );
 }
