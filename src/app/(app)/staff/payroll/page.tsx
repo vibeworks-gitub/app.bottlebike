@@ -49,10 +49,19 @@ function parseDate(s: string | undefined): Date | null {
 export default async function PayrollPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    period?: string;
+    from?: string;
+    to?: string;
+    ma?: string;
+  }>;
 }) {
-  const { period: periodParam, from: fromParam, to: toParam } =
-    await searchParams;
+  const {
+    period: periodParam,
+    from: fromParam,
+    to: toParam,
+    ma: maParam,
+  } = await searchParams;
   const user = await getCurrentUser();
   if (!user || user.role !== "owner") redirect("/dashboard");
   const supabase = await createClient();
@@ -135,7 +144,7 @@ export default async function PayrollPage({
     lnk: number | null;
     payout: PayoutRow | null;
   };
-  const rows: Row[] = [];
+  let rows: Row[] = [];
   for (const u of calc.byUser) {
     const sStaff = commissionStaff.find(
       (s) => s.r2o_user_id === u.user_id,
@@ -170,6 +179,20 @@ export default async function PayrollPage({
     }
   }
   rows.sort((a, b) => b.date.localeCompare(a.date) || a.name.localeCompare(b.name));
+
+  // MA-Filter (?ma=<r2o_user_id>) — Summen beziehen sich auf die gefilterte Sicht.
+  const maFilter =
+    maParam && /^\d+$/.test(maParam) ? Number(maParam) : null;
+  const allRowCount = rows.length;
+  if (maFilter != null) {
+    rows = rows.filter((r) => r.userId === maFilter);
+  }
+  // Query-Suffix, damit MA-Filter und Zeitraum sich gegenseitig erhalten.
+  const periodQuery =
+    activeKey === "custom"
+      ? `from=${fromParam}&to=${toParam}`
+      : `period=${activeKey}`;
+  const maQuery = maFilter != null ? `&ma=${maFilter}` : "";
 
   const openSum = rows
     .filter((r) => !r.payout && r.commission != null)
@@ -209,7 +232,7 @@ export default async function PayrollPage({
           return (
             <Link
               key={p.key}
-              href={`/staff/payroll?period=${p.key}`}
+              href={`/staff/payroll?period=${p.key}${maQuery}`}
               className="rounded-md border px-3 py-1.5 font-medium"
               style={
                 active
@@ -234,6 +257,55 @@ export default async function PayrollPage({
           active={activeKey === "custom"}
           basePath="/staff/payroll"
         />
+      </div>
+
+      {/* Mitarbeiter-Filter */}
+      <div className="flex flex-wrap items-center gap-1.5 text-sm">
+        <span className="pr-1 text-xs text-muted-foreground">Mitarbeiter</span>
+        <Link
+          href={`/staff/payroll?${periodQuery}`}
+          className="rounded-md border px-3 py-1.5 font-medium"
+          style={
+            maFilter == null
+              ? {
+                  backgroundColor: "hsl(0 0% 9%)",
+                  color: "white",
+                  borderColor: "transparent",
+                }
+              : { backgroundColor: "var(--card)", color: "var(--foreground)" }
+          }
+        >
+          Alle
+        </Link>
+        {commissionStaff.map((s) => {
+          const active = maFilter === s.r2o_user_id;
+          return (
+            <Link
+              key={s.r2o_user_id}
+              href={`/staff/payroll?${periodQuery}&ma=${s.r2o_user_id}`}
+              className="rounded-md border px-3 py-1.5 font-medium"
+              style={
+                active
+                  ? {
+                      backgroundColor: "hsl(0 0% 9%)",
+                      color: "white",
+                      borderColor: "transparent",
+                    }
+                  : {
+                      backgroundColor: "var(--card)",
+                      color: "var(--foreground)",
+                    }
+              }
+            >
+              {s.display_name}
+            </Link>
+          );
+        })}
+        {maFilter != null && (
+          <span className="pl-1 text-xs text-muted-foreground">
+            {rows.length} von {allRowCount} Tagen
+          </span>
+        )}
       </div>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
