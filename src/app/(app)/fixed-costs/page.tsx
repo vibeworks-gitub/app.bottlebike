@@ -29,11 +29,15 @@ export default async function FixedCostsPage() {
     .filter((c) => c.active)
     .reduce(
       (a, c) => {
-        a.daily += fixedCostDaily(c);
-        a.monthly += fixedCostMonthly(c);
+        if (c.frequency === "once") {
+          a.once += Number(c.amount);
+        } else {
+          a.daily += fixedCostDaily(c);
+          a.monthly += fixedCostMonthly(c);
+        }
         return a;
       },
-      { daily: 0, monthly: 0 },
+      { daily: 0, monthly: 0, once: 0 },
     );
 
   return (
@@ -50,8 +54,8 @@ export default async function FixedCostsPage() {
             Fixkosten
           </h1>
           <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-            Wiederkehrende Kosten — Lizenzen, Miete, Strom, Versicherungen etc.
-            Werden in der Tagesabrechnung anteilig abgezogen.
+            Wiederkehrende Kosten und einmalige Anschaffungen (z.B. Bike-Kauf).
+            Wiederkehrendes wird anteilig abgezogen, Anschaffungen zählen voll am Kaufdatum.
           </p>
         </div>
         <Link href="/fixed-costs/new" className={buttonVariants()}>
@@ -60,13 +64,17 @@ export default async function FixedCostsPage() {
       </header>
 
       {!empty && (
-        <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat
             label="Pro Monat"
             value={formatEUR(totals.monthly)}
             accent
           />
           <Stat label="Pro Tag" value={formatEUR(totals.daily)} />
+          <Stat
+            label="Anschaffungen gesamt"
+            value={formatEUR(totals.once)}
+          />
           <Stat label="Aktive Posten" value={String(costs!.filter((c) => c.active).length)} />
         </section>
       )}
@@ -151,10 +159,12 @@ export default async function FixedCostsPage() {
                     {frequencyLabel(c.frequency)}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatEUR(fixedCostDaily(c))}
+                    {c.frequency === "once" ? "—" : formatEUR(fixedCostDaily(c))}
                   </TableCell>
                   <TableCell className="text-right tabular-nums">
-                    {formatEUR(fixedCostMonthly(c))}
+                    {c.frequency === "once"
+                      ? `${formatEUR(c.amount)} einmalig`
+                      : formatEUR(fixedCostMonthly(c))}
                   </TableCell>
                   <TableCell>
                     {c.active ? (

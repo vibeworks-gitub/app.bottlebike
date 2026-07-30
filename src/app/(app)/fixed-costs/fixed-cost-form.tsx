@@ -24,6 +24,7 @@ const FREQUENCIES = [
   { value: "weekly", label: "Wöchentlich" },
   { value: "monthly", label: "Monatlich" },
   { value: "yearly", label: "Jährlich" },
+  { value: "once", label: "Einmalig (Anschaffung)" },
 ];
 
 export function FixedCostForm({

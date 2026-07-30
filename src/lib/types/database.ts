@@ -2227,7 +2227,7 @@ export type ProductExtra = {
   updated_at: string;
 };
 
-export type FixedCostFrequency = "daily" | "weekly" | "monthly" | "yearly";
+export type FixedCostFrequency = "daily" | "weekly" | "monthly" | "yearly" | "once";
 
 export type FixedCost = {
   id: string;

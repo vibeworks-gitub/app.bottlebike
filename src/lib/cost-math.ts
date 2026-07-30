@@ -132,5 +132,6 @@ export function frequencyLabel(f: FixedCost["frequency"]): string {
     weekly: "wöchentlich",
     monthly: "monatlich",
     yearly: "jährlich",
+    once: "einmalig (Anschaffung)",
   }[f];
 }

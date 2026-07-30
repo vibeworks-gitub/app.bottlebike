@@ -608,9 +608,19 @@ export async function calculateForPeriod(
     staffCommissionTotal - staffCommissionEmployeeTotal;
   const staffTotal = staffFixed + staffCommissionTotal;
 
-  // Fixed costs
+  // Fixed costs. Wiederkehrende anteilig über die Zeitraum-Tage;
+  // Anschaffungen (frequency='once') zählen voll am Kaufdatum (start_date),
+  // wenn es im Zeitraum liegt.
   let fixedCosts = 0;
   for (const c of fixed ?? []) {
+    if (c.frequency === "once") {
+      if (!c.active) continue;
+      const bought = new Date(c.start_date + "T12:00:00").getTime();
+      if (bought >= effectiveFrom.getTime() && bought <= period.to.getTime()) {
+        fixedCosts += Number(c.amount);
+      }
+      continue;
+    }
     if (!isActiveAt(c, period.to)) continue;
     fixedCosts += fixedCostDaily(c) * effectivePeriod.days;
   }
