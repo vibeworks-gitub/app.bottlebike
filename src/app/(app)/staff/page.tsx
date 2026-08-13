@@ -23,7 +23,7 @@ import {
   type PeriodPreset,
 } from "@/lib/calculation";
 import type { StaffCost } from "@/lib/types/database";
-import { deleteStaffCost } from "./actions";
+import { StaffRow, type StaffDay } from "./staff-row";
 
 const PERIOD_PRESETS: ReadonlyArray<{ key: PeriodPreset; label: string }> = [
   { key: "month", label: "Dieser Monat" },
@@ -78,6 +78,17 @@ export default async function StaffPage({
   const netByR2oUser = new Map<number, number>();
   const minutesByR2oUser = new Map<number, number>();
   const workDayCountByR2oUser = new Map<number, number>();
+  type CalcWorkDay = {
+    date: string;
+    label: string;
+    firstAt: string;
+    lastAt: string;
+    invoiceCount: number;
+    revenue: number;
+    revenueNet: number;
+    minutes: number;
+  };
+  const workDaysByR2oUser = new Map<number, CalcWorkDay[]>();
   if (user) {
     const calc = await calculateForPeriod(
       supabase,
@@ -93,6 +104,7 @@ export default async function StaffPage({
           u.workDays.reduce((s, w) => s + w.minutes, 0),
         );
         workDayCountByR2oUser.set(u.user_id, u.workDays.length);
+        workDaysByR2oUser.set(u.user_id, u.workDays);
       }
     }
   }
@@ -117,6 +129,7 @@ export default async function StaffPage({
     minutes: number; // Rechnungszeit netto (Summe erste–letzte Rechnung pro Tag)
     bruttoMinutes: number; // + 30 min vor und nach jedem Arbeitstag
     perHour: number | null; // Provision / Brutto-Stunde
+    days: StaffDay[];
   };
   const lines: StaffLine[] = (staff ?? [])
     .filter((s) => s.active)
@@ -145,6 +158,25 @@ export default async function StaffPage({
         minutes >= 10 && provision > 0
           ? provision / (bruttoMinutes / 60)
           : null;
+      const days: StaffDay[] = (
+        s.r2o_user_id != null
+          ? (workDaysByR2oUser.get(s.r2o_user_id) ?? [])
+          : []
+      )
+        .map((w) => ({
+          date: w.date,
+          label: w.label,
+          firstAt: w.firstAt,
+          lastAt: w.lastAt,
+          minutes: w.minutes,
+          invoiceCount: w.invoiceCount,
+          revenueNet: w.revenueNet,
+          commission:
+            s.commission_pct != null
+              ? Math.round(w.revenueNet * Number(s.commission_pct)) / 100
+              : null,
+        }))
+        .sort((a, b) => b.date.localeCompare(a.date));
       return {
         staff: s,
         netRevenue,
@@ -155,6 +187,7 @@ export default async function StaffPage({
         minutes,
         bruttoMinutes,
         perHour,
+        days,
       };
     });
 
@@ -349,125 +382,35 @@ export default async function StaffPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {lines.map((l) => {
-                const s = l.staff;
-                return (
-                  <TableRow key={s.id}>
-                    <TableCell>
-                      <Link
-                        href={`/staff/${s.id}`}
-                        className="font-medium hover:underline"
-                        style={{ color: "var(--brand)" }}
-                      >
-                        {s.display_name}
-                      </Link>
-                      {s.role && (
-                        <span className="ml-2 text-xs text-muted-foreground">
-                          {s.role}
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-xs">
-                      <div className="flex flex-col gap-0.5">
-                        {s.monthly_salary != null && (
-                          <span>{formatEUR(s.monthly_salary)} / Monat</span>
-                        )}
-                        {s.hourly_rate != null && s.hours_per_week != null && (
-                          <span>
-                            {formatEUR(s.hourly_rate)}/h × {s.hours_per_week}h/W
-                          </span>
-                        )}
-                        {s.commission_pct != null && (
-                          <span style={{ color: "var(--brand)" }}>
-                            {s.commission_pct}% Provision
-                          </span>
-                        )}
-                        {s.monthly_salary == null &&
-                          s.hourly_rate == null &&
-                          s.commission_pct == null && <span>—</span>}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.minutes > 0
-                        ? `${Math.floor(l.minutes / 60)}:${String(l.minutes % 60).padStart(2, "0")} h`
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.bruttoMinutes > 0
-                        ? `${Math.floor(l.bruttoMinutes / 60)}:${String(l.bruttoMinutes % 60).padStart(2, "0")} h`
-                        : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.netRevenue > 0 ? formatEUR(l.netRevenue) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {l.provision > 0 ? (
-                        <span
-                          className="inline-block rounded-md px-2 py-1 font-heading text-base font-extrabold tabular-nums"
-                          style={{
-                            color: "var(--brand)",
-                            backgroundColor: "var(--brand-soft)",
-                          }}
-                        >
-                          {formatEUR(l.provision)}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs font-medium">
-                      {l.perHour != null ? `${formatEUR(l.perHour)}/h` : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.lnk > 0 ? formatEUR(l.lnk) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.fix > 0 ? formatEUR(l.fix) : "—"}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
-                      {l.total > 0 ? formatEUR(l.total) : "—"}
-                    </TableCell>
-                    <TableCell className="text-xs text-muted-foreground">
-                      {s.r2o_user_id != null
-                        ? (r2oName.get(s.r2o_user_id) ?? `#${s.r2o_user_id}`)
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {s.active ? (
-                        <Badge variant="secondary">aktiv</Badge>
-                      ) : (
-                        <Badge variant="outline">inaktiv</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Link
-                          href={`/staff/${s.id}`}
-                          className={buttonVariants({
-                            variant: "ghost",
-                            size: "sm",
-                          })}
-                        >
-                          Bearbeiten
-                        </Link>
-                        <form action={deleteStaffCost}>
-                          <input type="hidden" name="id" value={s.id} />
-                          <button
-                            type="submit"
-                            className={buttonVariants({
-                              variant: "ghost",
-                              size: "sm",
-                            })}
-                            style={{ color: "var(--destructive)" }}
-                          >
-                            Löschen
-                          </button>
-                        </form>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
+              {lines.map((l) => (
+                <StaffRow
+                  key={l.staff.id}
+                  row={{
+                    id: l.staff.id,
+                    name: l.staff.display_name,
+                    role: l.staff.role,
+                    monthlySalary: l.staff.monthly_salary,
+                    hourlyRate: l.staff.hourly_rate,
+                    hoursPerWeek: l.staff.hours_per_week,
+                    commissionPct: l.staff.commission_pct,
+                    active: l.staff.active,
+                    r2oLabel:
+                      l.staff.r2o_user_id != null
+                        ? (r2oName.get(l.staff.r2o_user_id) ??
+                          `#${l.staff.r2o_user_id}`)
+                        : "—",
+                    minutes: l.minutes,
+                    bruttoMinutes: l.bruttoMinutes,
+                    netRevenue: l.netRevenue,
+                    provision: l.provision,
+                    perHour: l.perHour,
+                    lnk: l.lnk,
+                    fix: l.fix,
+                    total: l.total,
+                    days: l.days,
+                  }}
+                />
+              ))}
               {(staff ?? []).filter((s) => !s.active).map((s) => (
                 <TableRow key={s.id} className="text-muted-foreground">
                   <TableCell>
