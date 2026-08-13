@@ -77,6 +77,7 @@ export default async function StaffPage({
   // Trinkgeld-Regeln exakt wie auf Dashboard und Abrechnung.
   const netByR2oUser = new Map<number, number>();
   const minutesByR2oUser = new Map<number, number>();
+  const workDayCountByR2oUser = new Map<number, number>();
   if (user) {
     const calc = await calculateForPeriod(
       supabase,
@@ -91,6 +92,7 @@ export default async function StaffPage({
           u.user_id,
           u.workDays.reduce((s, w) => s + w.minutes, 0),
         );
+        workDayCountByR2oUser.set(u.user_id, u.workDays.length);
       }
     }
   }
@@ -112,8 +114,9 @@ export default async function StaffPage({
     lnk: number;
     fix: number;
     total: number;
-    minutes: number; // Arbeitszeit (Summe erste–letzte Rechnung pro Tag)
-    perHour: number | null; // Provision / Stunde
+    minutes: number; // Rechnungszeit netto (Summe erste–letzte Rechnung pro Tag)
+    bruttoMinutes: number; // + 30 min vor und nach jedem Arbeitstag
+    perHour: number | null; // Provision / Brutto-Stunde
   };
   const lines: StaffLine[] = (staff ?? [])
     .filter((s) => s.active)
@@ -130,10 +133,18 @@ export default async function StaffPage({
       const fix = staffCostDaily(s) * period.days;
       const minutes =
         s.r2o_user_id != null ? (minutesByR2oUser.get(s.r2o_user_id) ?? 0) : 0;
-      // Unter 10 Minuten ist die Spanne keine belastbare Arbeitszeit
-      // (z.B. ein einzelner Beleg) — dann keinen Stundensatz ausweisen.
+      const workDayCount =
+        s.r2o_user_id != null
+          ? (workDayCountByR2oUser.get(s.r2o_user_id) ?? 0)
+          : 0;
+      // Bruttozeit = Rechnungszeit + 30 min Aufbau + 30 min Abbau je Arbeitstag.
+      const bruttoMinutes = minutes > 0 ? minutes + workDayCount * 60 : 0;
+      // Unter 10 Minuten Rechnungszeit ist die Spanne keine belastbare
+      // Arbeitszeit (z.B. ein einzelner Beleg) — dann kein Stundensatz.
       const perHour =
-        minutes >= 10 && provision > 0 ? provision / (minutes / 60) : null;
+        minutes >= 10 && provision > 0
+          ? provision / (bruttoMinutes / 60)
+          : null;
       return {
         staff: s,
         netRevenue,
@@ -142,6 +153,7 @@ export default async function StaffPage({
         fix,
         total: provision + lnk + fix,
         minutes,
+        bruttoMinutes,
         perHour,
       };
     });
@@ -286,7 +298,20 @@ export default async function StaffPage({
                   Modell
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  Arbeitszeit
+                  <span
+                    title="Rechnungszeit (netto): Zeit von der ersten bis zur letzten Rechnung des Tages, über alle Arbeitstage im Zeitraum summiert."
+                    className="cursor-help"
+                  >
+                    Rechnungszeit ⓘ
+                  </span>
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  <span
+                    title="Bruttozeit: Rechnungszeit plus 30 Minuten vor der ersten und 30 Minuten nach der letzten Rechnung pro Arbeitstag (Aufbau/Abbau)."
+                    className="cursor-help"
+                  >
+                    Bruttozeit ⓘ
+                  </span>
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Umsatz netto
@@ -298,7 +323,12 @@ export default async function StaffPage({
                   Provision (Auszahlung)
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  € / h
+                  <span
+                    title="Provision geteilt durch Bruttozeit — was der Mitarbeiter effektiv pro Stunde verdient."
+                    className="cursor-help"
+                  >
+                    € / h ⓘ
+                  </span>
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   LNK
@@ -360,6 +390,11 @@ export default async function StaffPage({
                     <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.minutes > 0
                         ? `${Math.floor(l.minutes / 60)}:${String(l.minutes % 60).padStart(2, "0")} h`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                      {l.bruttoMinutes > 0
+                        ? `${Math.floor(l.bruttoMinutes / 60)}:${String(l.bruttoMinutes % 60).padStart(2, "0")} h`
                         : "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
@@ -444,7 +479,7 @@ export default async function StaffPage({
                     </Link>
                   </TableCell>
                   <TableCell className="text-xs italic">inaktiv</TableCell>
-                  <TableCell colSpan={7} className="text-right text-xs">
+                  <TableCell colSpan={8} className="text-right text-xs">
                     keine Berechnung
                   </TableCell>
                   <TableCell className="text-xs">
