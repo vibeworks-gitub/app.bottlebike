@@ -76,6 +76,7 @@ export default async function StaffPage({
   // Umbuchungen (bb_commission_reassignments), Eigenverbrauchs- und
   // Trinkgeld-Regeln exakt wie auf Dashboard und Abrechnung.
   const netByR2oUser = new Map<number, number>();
+  const minutesByR2oUser = new Map<number, number>();
   if (user) {
     const calc = await calculateForPeriod(
       supabase,
@@ -84,7 +85,13 @@ export default async function StaffPage({
       integration?.accounting_start_date ?? null,
     );
     for (const u of calc.byUser) {
-      if (u.user_id != null) netByR2oUser.set(u.user_id, u.revenueNet);
+      if (u.user_id != null) {
+        netByR2oUser.set(u.user_id, u.revenueNet);
+        minutesByR2oUser.set(
+          u.user_id,
+          u.workDays.reduce((s, w) => s + w.minutes, 0),
+        );
+      }
     }
   }
 
@@ -105,6 +112,8 @@ export default async function StaffPage({
     lnk: number;
     fix: number;
     total: number;
+    minutes: number; // Arbeitszeit (Summe erste–letzte Rechnung pro Tag)
+    perHour: number | null; // Provision / Stunde
   };
   const lines: StaffLine[] = (staff ?? [])
     .filter((s) => s.active)
@@ -119,6 +128,12 @@ export default async function StaffPage({
           : 0;
       const lnk = provisionInklLnk - provision;
       const fix = staffCostDaily(s) * period.days;
+      const minutes =
+        s.r2o_user_id != null ? (minutesByR2oUser.get(s.r2o_user_id) ?? 0) : 0;
+      // Unter 10 Minuten ist die Spanne keine belastbare Arbeitszeit
+      // (z.B. ein einzelner Beleg) — dann keinen Stundensatz ausweisen.
+      const perHour =
+        minutes >= 10 && provision > 0 ? provision / (minutes / 60) : null;
       return {
         staff: s,
         netRevenue,
@@ -126,6 +141,8 @@ export default async function StaffPage({
         lnk,
         fix,
         total: provision + lnk + fix,
+        minutes,
+        perHour,
       };
     });
 
@@ -269,6 +286,9 @@ export default async function StaffPage({
                   Modell
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  Arbeitszeit
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Umsatz netto
                 </TableHead>
                 <TableHead
@@ -276,6 +296,9 @@ export default async function StaffPage({
                   style={{ color: "var(--brand)" }}
                 >
                   Provision (Auszahlung)
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  € / h
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   LNK
@@ -335,6 +358,11 @@ export default async function StaffPage({
                       </div>
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
+                      {l.minutes > 0
+                        ? `${Math.floor(l.minutes / 60)}:${String(l.minutes % 60).padStart(2, "0")} h`
+                        : "—"}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.netRevenue > 0 ? formatEUR(l.netRevenue) : "—"}
                     </TableCell>
                     <TableCell className="text-right">
@@ -351,6 +379,9 @@ export default async function StaffPage({
                       ) : (
                         <span className="text-muted-foreground">—</span>
                       )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs font-medium">
+                      {l.perHour != null ? `${formatEUR(l.perHour)}/h` : "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
                       {l.lnk > 0 ? formatEUR(l.lnk) : "—"}
@@ -413,7 +444,7 @@ export default async function StaffPage({
                     </Link>
                   </TableCell>
                   <TableCell className="text-xs italic">inaktiv</TableCell>
-                  <TableCell colSpan={5} className="text-right text-xs">
+                  <TableCell colSpan={7} className="text-right text-xs">
                     keine Berechnung
                   </TableCell>
                   <TableCell className="text-xs">

@@ -244,6 +244,7 @@ export type CalculationResult = {
       invoiceCount: number;
       revenue: number; // brutto ohne TG
       revenueNet: number; // netto ohne TG — Provisions-Basis des Tages
+      minutes: number; // Arbeitszeit erste–letzte Rechnung in Minuten
     }>;
   }>;
   byPayment: Array<{
@@ -844,6 +845,9 @@ export async function calculateForPeriod(
           invoiceCount: w.count,
           revenue: w.revenue,
           revenueNet: w.revenueNet,
+          minutes: Math.round(
+            (w.last.getTime() - w.first.getTime()) / 60000,
+          ),
         };
       })
       .sort((a, b) => a.date.localeCompare(b.date));
