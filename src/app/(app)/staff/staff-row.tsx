@@ -17,7 +17,8 @@ export type StaffDay = {
   invoiceCount: number;
   revenueNet: number;
   commission: number | null;
-  perHour: number | null; // Provision / Brutto-Stunde
+  perHourNetto: number | null; // Provision / Rechnungszeit-Stunde
+  perHourBrutto: number | null; // Provision / Bruttozeit-Stunde
   lnk: number | null;
   total: number | null; // Provision + LNK
 };
@@ -36,7 +37,8 @@ export type StaffRowData = {
   bruttoMinutes: number;
   netRevenue: number;
   provision: number;
-  perHour: number | null;
+  perHourNetto: number | null;
+  perHourBrutto: number | null;
   lnk: number;
   fix: number;
   total: number;
@@ -47,6 +49,8 @@ function fmtH(minutes: number): string {
   return `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, "0")} h`;
 }
 
+// Haupt-Zeile + (aufgeklappt) Tages-Zeilen in DERSELBEN Tabelle — dadurch
+// fluchten die Tages-Werte exakt mit den gleichnamigen Haupt-Spalten.
 export function StaffRow({ row }: { row: StaffRowData }) {
   const [open, setOpen] = useState(false);
   const hasDays = row.days.length > 0;
@@ -128,7 +132,12 @@ export function StaffRow({ row }: { row: StaffRowData }) {
           )}
         </TableCell>
         <TableCell className="text-right tabular-nums text-xs font-medium">
-          {row.perHour != null ? `${formatEUR(row.perHour)}/h` : "—"}
+          {row.perHourNetto != null ? `${formatEUR(row.perHourNetto)}/h` : "—"}
+        </TableCell>
+        <TableCell className="text-right tabular-nums text-xs font-medium">
+          {row.perHourBrutto != null
+            ? `${formatEUR(row.perHourBrutto)}/h`
+            : "—"}
         </TableCell>
         <TableCell className="text-right tabular-nums text-xs text-muted-foreground">
           {row.lnk > 0 ? formatEUR(row.lnk) : "—"}
@@ -171,70 +180,56 @@ export function StaffRow({ row }: { row: StaffRowData }) {
         </TableCell>
       </TableRow>
 
-      {open && hasDays && (
-        <TableRow className="bg-muted/20 hover:bg-muted/20">
-          <TableCell colSpan={13} className="px-6 py-3">
-            <div className="max-w-5xl">
-              <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Arbeitstage · {row.name}
-              </p>
-              <table className="w-full text-xs">
-                <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
-                  <tr>
-                    <th className="py-1">Datum</th>
-                    <th>Von – bis</th>
-                    <th className="text-right">Belege</th>
-                    <th className="text-right">Rechnungszeit</th>
-                    <th className="text-right">Bruttozeit</th>
-                    <th className="text-right">Umsatz netto</th>
-                    <th className="text-right">Provision</th>
-                    <th className="text-right">€ / h</th>
-                    <th className="text-right">LNK</th>
-                    <th className="text-right">Gesamt</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {row.days.map((d) => (
-                    <tr key={d.date} className="border-t border-border/50">
-                      <td className="py-1.5 font-medium">{d.label}</td>
-                      <td className="tabular-nums">
-                        {d.firstAt} – {d.lastAt}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {d.invoiceCount}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {fmtH(d.minutes)}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {fmtH(d.bruttoMinutes)}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {formatEUR(d.revenueNet)}
-                      </td>
-                      <td
-                        className="text-right tabular-nums font-semibold"
-                        style={{ color: "var(--brand)" }}
-                      >
-                        {d.commission != null ? formatEUR(d.commission) : "—"}
-                      </td>
-                      <td className="text-right tabular-nums">
-                        {d.perHour != null ? `${formatEUR(d.perHour)}/h` : "—"}
-                      </td>
-                      <td className="text-right tabular-nums text-muted-foreground">
-                        {d.lnk != null ? formatEUR(d.lnk) : "—"}
-                      </td>
-                      <td className="text-right tabular-nums text-muted-foreground">
-                        {d.total != null ? formatEUR(d.total) : "—"}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </TableCell>
-        </TableRow>
-      )}
+      {open &&
+        row.days.map((d) => (
+          <TableRow
+            key={d.date}
+            className="bg-muted/20 text-xs hover:bg-muted/30"
+          >
+            <TableCell className="py-1.5 pl-11">
+              <span className="font-medium">{d.label}</span>
+              <span className="ml-2 tabular-nums text-muted-foreground">
+                {d.firstAt} – {d.lastAt}
+              </span>
+            </TableCell>
+            <TableCell className="tabular-nums text-muted-foreground">
+              {d.invoiceCount} Belege
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {fmtH(d.minutes)}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {fmtH(d.bruttoMinutes)}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {formatEUR(d.revenueNet)}
+            </TableCell>
+            <TableCell
+              className="text-right tabular-nums font-semibold"
+              style={{ color: "var(--brand)" }}
+            >
+              {d.commission != null ? formatEUR(d.commission) : "—"}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {d.perHourNetto != null
+                ? `${formatEUR(d.perHourNetto)}/h`
+                : "—"}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {d.perHourBrutto != null
+                ? `${formatEUR(d.perHourBrutto)}/h`
+                : "—"}
+            </TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {d.lnk != null ? formatEUR(d.lnk) : "—"}
+            </TableCell>
+            <TableCell className="text-right text-muted-foreground">—</TableCell>
+            <TableCell className="text-right tabular-nums text-muted-foreground">
+              {d.total != null ? formatEUR(d.total) : "—"}
+            </TableCell>
+            <TableCell colSpan={3} />
+          </TableRow>
+        ))}
     </>
   );
 }

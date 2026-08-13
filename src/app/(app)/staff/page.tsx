@@ -24,6 +24,7 @@ import {
 } from "@/lib/calculation";
 import type { StaffCost } from "@/lib/types/database";
 import { StaffRow, type StaffDay } from "./staff-row";
+import { InfoTip } from "@/components/info-tip";
 
 const PERIOD_PRESETS: ReadonlyArray<{ key: PeriodPreset; label: string }> = [
   { key: "month", label: "Dieser Monat" },
@@ -128,7 +129,8 @@ export default async function StaffPage({
     total: number;
     minutes: number; // Rechnungszeit netto (Summe erste–letzte Rechnung pro Tag)
     bruttoMinutes: number; // + 30 min vor und nach jedem Arbeitstag
-    perHour: number | null; // Provision / Brutto-Stunde
+    perHourNetto: number | null; // Provision / Rechnungszeit-Stunde
+    perHourBrutto: number | null; // Provision / Bruttozeit-Stunde
     days: StaffDay[];
   };
   const lines: StaffLine[] = (staff ?? [])
@@ -153,9 +155,11 @@ export default async function StaffPage({
       // Bruttozeit = Rechnungszeit + 30 min Aufbau + 30 min Abbau je Arbeitstag.
       const bruttoMinutes = minutes > 0 ? minutes + workDayCount * 60 : 0;
       // Unter 10 Minuten Rechnungszeit ist die Spanne keine belastbare
-      // Arbeitszeit (z.B. ein einzelner Beleg) — dann kein Stundensatz.
-      const perHour =
-        minutes >= 10 && provision > 0
+      // Arbeitszeit (z.B. ein einzelner Beleg) — dann kein Netto-Stundensatz.
+      const perHourNetto =
+        minutes >= 10 && provision > 0 ? provision / (minutes / 60) : null;
+      const perHourBrutto =
+        bruttoMinutes > 0 && provision > 0
           ? provision / (bruttoMinutes / 60)
           : null;
       const factorForDays = s.employer_cost_factor ?? 1.3;
@@ -182,7 +186,11 @@ export default async function StaffPage({
             invoiceCount: w.invoiceCount,
             revenueNet: w.revenueNet,
             commission: dayCommission,
-            perHour:
+            perHourNetto:
+              dayCommission != null && w.minutes >= 10
+                ? dayCommission / (w.minutes / 60)
+                : null,
+            perHourBrutto:
               dayCommission != null ? dayCommission / (dayBrutto / 60) : null,
             lnk: dayLnk,
             total:
@@ -201,7 +209,8 @@ export default async function StaffPage({
         total: provision + lnk + fix,
         minutes,
         bruttoMinutes,
-        perHour,
+        perHourNetto,
+        perHourBrutto,
         days,
       };
     });
@@ -346,20 +355,12 @@ export default async function StaffPage({
                   Modell
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  <span
-                    title="Rechnungszeit (netto): Zeit von der ersten bis zur letzten Rechnung des Tages, über alle Arbeitstage im Zeitraum summiert."
-                    className="cursor-help"
-                  >
-                    Rechnungszeit ⓘ
-                  </span>
+                  Rechnungszeit
+                  <InfoTip text="Zeit von der ersten bis zur letzten Rechnung des Tages, über alle Arbeitstage im Zeitraum summiert (= Netto-Arbeitszeit)." />
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  <span
-                    title="Bruttozeit: Rechnungszeit plus 30 Minuten vor der ersten und 30 Minuten nach der letzten Rechnung pro Arbeitstag (Aufbau/Abbau)."
-                    className="cursor-help"
-                  >
-                    Bruttozeit ⓘ
-                  </span>
+                  Bruttozeit
+                  <InfoTip text="Rechnungszeit plus 30 Minuten vor der ersten und 30 Minuten nach der letzten Rechnung pro Arbeitstag (Aufbau/Abbau)." />
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   Umsatz netto
@@ -371,12 +372,12 @@ export default async function StaffPage({
                   Provision (Auszahlung)
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                  <span
-                    title="Provision geteilt durch Bruttozeit — was der Mitarbeiter effektiv pro Stunde verdient."
-                    className="cursor-help"
-                  >
-                    € / h ⓘ
-                  </span>
+                  € / h netto
+                  <InfoTip text="Provision geteilt durch Rechnungszeit — Verdienst pro Stunde reiner Verkaufszeit." />
+                </TableHead>
+                <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                  € / h brutto
+                  <InfoTip text="Provision geteilt durch Bruttozeit (inkl. je 30 min Aufbau und Abbau) — der realistische Stundenlohn." />
                 </TableHead>
                 <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
                   LNK
@@ -418,7 +419,8 @@ export default async function StaffPage({
                     bruttoMinutes: l.bruttoMinutes,
                     netRevenue: l.netRevenue,
                     provision: l.provision,
-                    perHour: l.perHour,
+                    perHourNetto: l.perHourNetto,
+                    perHourBrutto: l.perHourBrutto,
                     lnk: l.lnk,
                     fix: l.fix,
                     total: l.total,
@@ -437,7 +439,7 @@ export default async function StaffPage({
                     </Link>
                   </TableCell>
                   <TableCell className="text-xs italic">inaktiv</TableCell>
-                  <TableCell colSpan={8} className="text-right text-xs">
+                  <TableCell colSpan={9} className="text-right text-xs">
                     keine Berechnung
                   </TableCell>
                   <TableCell className="text-xs">
