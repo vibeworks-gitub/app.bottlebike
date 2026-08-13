@@ -158,24 +158,39 @@ export default async function StaffPage({
         minutes >= 10 && provision > 0
           ? provision / (bruttoMinutes / 60)
           : null;
+      const factorForDays = s.employer_cost_factor ?? 1.3;
       const days: StaffDay[] = (
         s.r2o_user_id != null
           ? (workDaysByR2oUser.get(s.r2o_user_id) ?? [])
           : []
       )
-        .map((w) => ({
-          date: w.date,
-          label: w.label,
-          firstAt: w.firstAt,
-          lastAt: w.lastAt,
-          minutes: w.minutes,
-          invoiceCount: w.invoiceCount,
-          revenueNet: w.revenueNet,
-          commission:
+        .map((w) => {
+          const dayCommission =
             s.commission_pct != null
               ? Math.round(w.revenueNet * Number(s.commission_pct)) / 100
-              : null,
-        }))
+              : null;
+          const dayBrutto = w.minutes + 60; // + 30 min vor + 30 min nach
+          const dayLnk =
+            dayCommission != null ? dayCommission * (factorForDays - 1) : null;
+          return {
+            date: w.date,
+            label: w.label,
+            firstAt: w.firstAt,
+            lastAt: w.lastAt,
+            minutes: w.minutes,
+            bruttoMinutes: dayBrutto,
+            invoiceCount: w.invoiceCount,
+            revenueNet: w.revenueNet,
+            commission: dayCommission,
+            perHour:
+              dayCommission != null ? dayCommission / (dayBrutto / 60) : null,
+            lnk: dayLnk,
+            total:
+              dayCommission != null && dayLnk != null
+                ? dayCommission + dayLnk
+                : null,
+          };
+        })
         .sort((a, b) => b.date.localeCompare(a.date));
       return {
         staff: s,

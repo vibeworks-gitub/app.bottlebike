@@ -12,10 +12,14 @@ export type StaffDay = {
   label: string; // "28.06. Sa"
   firstAt: string;
   lastAt: string;
-  minutes: number;
+  minutes: number; // Rechnungszeit
+  bruttoMinutes: number; // + 30 min vor/nach
   invoiceCount: number;
   revenueNet: number;
   commission: number | null;
+  perHour: number | null; // Provision / Brutto-Stunde
+  lnk: number | null;
+  total: number | null; // Provision + LNK
 };
 
 export type StaffRowData = {
@@ -170,7 +174,7 @@ export function StaffRow({ row }: { row: StaffRowData }) {
       {open && hasDays && (
         <TableRow className="bg-muted/20 hover:bg-muted/20">
           <TableCell colSpan={13} className="px-6 py-3">
-            <div className="max-w-3xl">
+            <div className="max-w-5xl">
               <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
                 Arbeitstage · {row.name}
               </p>
@@ -178,11 +182,15 @@ export function StaffRow({ row }: { row: StaffRowData }) {
                 <thead className="text-left text-[10px] uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="py-1">Datum</th>
-                    <th>Rechnungszeit</th>
-                    <th className="text-right">Dauer</th>
+                    <th>Von – bis</th>
                     <th className="text-right">Belege</th>
+                    <th className="text-right">Rechnungszeit</th>
+                    <th className="text-right">Bruttozeit</th>
                     <th className="text-right">Umsatz netto</th>
                     <th className="text-right">Provision</th>
+                    <th className="text-right">€ / h</th>
+                    <th className="text-right">LNK</th>
+                    <th className="text-right">Gesamt</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -193,10 +201,13 @@ export function StaffRow({ row }: { row: StaffRowData }) {
                         {d.firstAt} – {d.lastAt}
                       </td>
                       <td className="text-right tabular-nums">
+                        {d.invoiceCount}
+                      </td>
+                      <td className="text-right tabular-nums">
                         {fmtH(d.minutes)}
                       </td>
                       <td className="text-right tabular-nums">
-                        {d.invoiceCount}
+                        {fmtH(d.bruttoMinutes)}
                       </td>
                       <td className="text-right tabular-nums">
                         {formatEUR(d.revenueNet)}
@@ -206,6 +217,15 @@ export function StaffRow({ row }: { row: StaffRowData }) {
                         style={{ color: "var(--brand)" }}
                       >
                         {d.commission != null ? formatEUR(d.commission) : "—"}
+                      </td>
+                      <td className="text-right tabular-nums">
+                        {d.perHour != null ? `${formatEUR(d.perHour)}/h` : "—"}
+                      </td>
+                      <td className="text-right tabular-nums text-muted-foreground">
+                        {d.lnk != null ? formatEUR(d.lnk) : "—"}
+                      </td>
+                      <td className="text-right tabular-nums text-muted-foreground">
+                        {d.total != null ? formatEUR(d.total) : "—"}
                       </td>
                     </tr>
                   ))}
