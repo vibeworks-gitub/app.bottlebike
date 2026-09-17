@@ -19,6 +19,7 @@ import {
 } from "@/lib/calculation";
 import { RangePicker } from "@/components/period-pickers";
 import { PayrollRowActions } from "./payroll-row-actions";
+import { InfoTip } from "@/components/info-tip";
 
 export const dynamic = "force-dynamic";
 
@@ -139,6 +140,7 @@ export default async function PayrollPage({
     invoiceCount: number;
     revenue: number;
     revenueNet: number;
+    cashGross: number;
     pct: number | null;
     commission: number | null;
     lnk: number | null;
@@ -171,6 +173,7 @@ export default async function PayrollPage({
         invoiceCount: w.invoiceCount,
         revenue: w.revenue,
         revenueNet: w.revenueNet,
+        cashGross: w.cashGross,
         pct: payout ? Number(payout.commission_pct_snapshot) : pct,
         commission,
         lnk: commission != null ? commission * (factor - 1) : null,
@@ -340,6 +343,10 @@ export default async function PayrollPage({
                 Netto
               </TableHead>
               <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
+                Bargeld
+                <InfoTip text="Bar kassierte Belege des Tages (inkl. Trinkgeld) — dieser Betrag sollte bei der Abrechnung in der Kassa liegen." />
+              </TableHead>
+              <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
                 Provision
               </TableHead>
               <TableHead className="text-right text-[11px] font-semibold uppercase tracking-wider">
@@ -355,7 +362,7 @@ export default async function PayrollPage({
             {rows.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={10}
+                  colSpan={11}
                   className="py-8 text-center text-sm text-muted-foreground"
                 >
                   Keine Verkaufstage im Zeitraum.
@@ -382,6 +389,9 @@ export default async function PayrollPage({
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums font-medium">
                   {formatEUR(r.revenueNet)}
+                </TableCell>
+                <TableCell className="text-right text-sm tabular-nums">
+                  {r.cashGross > 0 ? formatEUR(r.cashGross) : "—"}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums font-semibold">
                   {r.commission != null ? (

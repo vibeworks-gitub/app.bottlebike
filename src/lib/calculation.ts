@@ -244,6 +244,7 @@ export type CalculationResult = {
       invoiceCount: number;
       revenue: number; // brutto ohne TG
       revenueNet: number; // netto ohne TG — Provisions-Basis des Tages
+      cashGross: number; // bar kassiert (inkl. TG) — sollte in der Kassa liegen
       minutes: number; // Arbeitszeit erste–letzte Rechnung in Minuten
     }>;
   }>;
@@ -432,9 +433,15 @@ export async function calculateForPeriod(
 
   // Eigenverbrauch-Payment-Methods erkennen (R2O zaehlt sie nicht zum Gesamtumsatz)
   const internalUsePaymentIds = new Set<number>();
+  // Bar-Zahlungsarten (fuer die Bargeld-Kontrolle pro Arbeitstag)
+  const cashPaymentIds = new Set<number>();
   for (const p of paymentMethods ?? []) {
-    if ((p.payment_name ?? "").toLowerCase().includes("eigenverbrauch")) {
+    const name = (p.payment_name ?? "").toLowerCase();
+    if (name.includes("eigenverbrauch")) {
       internalUsePaymentIds.add(p.payment_id);
+    }
+    if (name.startsWith("bar")) {
+      cashPaymentIds.add(p.payment_id);
     }
   }
   const productGroupNameById = new Map<number, string>();
@@ -796,6 +803,7 @@ export async function calculateForPeriod(
         count: number;
         revenue: number;
         revenueNet: number;
+        cashGross: number;
       }
     >
   >();
@@ -814,6 +822,13 @@ export async function calculateForPeriod(
     const tip = Number(i.invoice_total_tip ?? 0);
     const rev = isInternal ? 0 : Number(i.invoice_total ?? 0) - tip;
     const revNet = isInternal ? 0 : Number(i.invoice_total_net ?? 0) - tip;
+    // Bar kassiert = physisch in der Kassa (inkl. Trinkgeld, das bar mitgegeben wurde)
+    const cash =
+      !isInternal &&
+      i.payment_method_id != null &&
+      cashPaymentIds.has(i.payment_method_id)
+        ? Number(i.invoice_total ?? 0)
+        : 0;
     if (!acc) {
       days.set(day, {
         first: d,
@@ -821,6 +836,7 @@ export async function calculateForPeriod(
         count: isInternal ? 0 : 1,
         revenue: rev,
         revenueNet: revNet,
+        cashGross: cash,
       });
     } else {
       if (d < acc.first) acc.first = d;
@@ -828,6 +844,7 @@ export async function calculateForPeriod(
       if (!isInternal) acc.count += 1;
       acc.revenue += rev;
       acc.revenueNet += revNet;
+      acc.cashGross += cash;
     }
   }
   function workDaysFor(uid: number | null) {
@@ -845,6 +862,7 @@ export async function calculateForPeriod(
           invoiceCount: w.count,
           revenue: w.revenue,
           revenueNet: w.revenueNet,
+          cashGross: w.cashGross,
           minutes: Math.round(
             (w.last.getTime() - w.first.getTime()) / 60000,
           ),
