@@ -203,6 +203,7 @@ export default async function PayrollPage({
   const paidSum = rows
     .filter((r) => r.payout)
     .reduce((s, r) => s + Number(r.payout!.commission_snapshot), 0);
+  const cashSum = rows.reduce((s, r) => s + r.cashGross, 0);
 
   const paidAtFmt = new Intl.DateTimeFormat("de-AT", {
     timeZone: "Europe/Vienna",
@@ -311,9 +312,10 @@ export default async function PayrollPage({
         )}
       </div>
 
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Offen" value={formatEUR(openSum)} tone="open" />
         <Stat label="Ausgezahlt" value={formatEUR(paidSum)} tone="paid" />
+        <Stat label="Bargeld (soll)" value={formatEUR(cashSum)} />
         <Stat
           label="Tage im Zeitraum"
           value={String(rows.length)}
