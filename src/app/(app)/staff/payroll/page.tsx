@@ -141,6 +141,7 @@ export default async function PayrollPage({
     revenue: number;
     revenueNet: number;
     cashGross: number;
+    cashTip: number;
     pct: number | null;
     commission: number | null;
     lnk: number | null;
@@ -174,6 +175,7 @@ export default async function PayrollPage({
         revenue: w.revenue,
         revenueNet: w.revenueNet,
         cashGross: w.cashGross,
+        cashTip: w.cashTip,
         pct: payout ? Number(payout.commission_pct_snapshot) : pct,
         commission,
         lnk: commission != null ? commission * (factor - 1) : null,
@@ -204,6 +206,7 @@ export default async function PayrollPage({
     .filter((r) => r.payout)
     .reduce((s, r) => s + Number(r.payout!.commission_snapshot), 0);
   const cashSum = rows.reduce((s, r) => s + r.cashGross, 0);
+  const cashTipSum = rows.reduce((s, r) => s + r.cashTip, 0);
 
   const paidAtFmt = new Intl.DateTimeFormat("de-AT", {
     timeZone: "Europe/Vienna",
@@ -315,7 +318,15 @@ export default async function PayrollPage({
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Offen" value={formatEUR(openSum)} tone="open" />
         <Stat label="Ausgezahlt" value={formatEUR(paidSum)} tone="paid" />
-        <Stat label="Bargeld (soll)" value={formatEUR(cashSum)} />
+        <Stat
+          label="Bargeld (soll)"
+          value={formatEUR(cashSum)}
+          sub={
+            cashTipSum > 0
+              ? `davon ${formatEUR(cashTipSum)} Trinkgeld`
+              : undefined
+          }
+        />
         <Stat
           label="Tage im Zeitraum"
           value={String(rows.length)}
@@ -393,7 +404,18 @@ export default async function PayrollPage({
                   {formatEUR(r.revenueNet)}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums">
-                  {r.cashGross > 0 ? formatEUR(r.cashGross) : "—"}
+                  {r.cashGross > 0 ? (
+                    <>
+                      {formatEUR(r.cashGross)}
+                      {r.cashTip > 0 && (
+                        <span className="ml-1 text-[10px] text-muted-foreground">
+                          (davon {formatEUR(r.cashTip)} TG)
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    "—"
+                  )}
                 </TableCell>
                 <TableCell className="text-right text-sm tabular-nums font-semibold">
                   {r.commission != null ? (
@@ -476,10 +498,12 @@ function Stat({
   label,
   value,
   tone,
+  sub,
 }: {
   label: string;
   value: string;
   tone?: "open" | "paid";
+  sub?: string;
 }) {
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2">
@@ -498,6 +522,9 @@ function Stat({
       >
         {value}
       </div>
+      {sub && (
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>
+      )}
     </div>
   );
 }

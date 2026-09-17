@@ -245,6 +245,7 @@ export type CalculationResult = {
       revenue: number; // brutto ohne TG
       revenueNet: number; // netto ohne TG — Provisions-Basis des Tages
       cashGross: number; // bar kassiert (inkl. TG) — sollte in der Kassa liegen
+      cashTip: number; // davon Trinkgeld (bar)
       minutes: number; // Arbeitszeit erste–letzte Rechnung in Minuten
     }>;
   }>;
@@ -804,6 +805,7 @@ export async function calculateForPeriod(
         revenue: number;
         revenueNet: number;
         cashGross: number;
+        cashTip: number;
       }
     >
   >();
@@ -823,12 +825,12 @@ export async function calculateForPeriod(
     const rev = isInternal ? 0 : Number(i.invoice_total ?? 0) - tip;
     const revNet = isInternal ? 0 : Number(i.invoice_total_net ?? 0) - tip;
     // Bar kassiert = physisch in der Kassa (inkl. Trinkgeld, das bar mitgegeben wurde)
-    const cash =
+    const isCash =
       !isInternal &&
       i.payment_method_id != null &&
-      cashPaymentIds.has(i.payment_method_id)
-        ? Number(i.invoice_total ?? 0)
-        : 0;
+      cashPaymentIds.has(i.payment_method_id);
+    const cash = isCash ? Number(i.invoice_total ?? 0) : 0;
+    const cashTip = isCash ? tip : 0;
     if (!acc) {
       days.set(day, {
         first: d,
@@ -837,6 +839,7 @@ export async function calculateForPeriod(
         revenue: rev,
         revenueNet: revNet,
         cashGross: cash,
+        cashTip,
       });
     } else {
       if (d < acc.first) acc.first = d;
@@ -845,6 +848,7 @@ export async function calculateForPeriod(
       acc.revenue += rev;
       acc.revenueNet += revNet;
       acc.cashGross += cash;
+      acc.cashTip += cashTip;
     }
   }
   function workDaysFor(uid: number | null) {
@@ -863,6 +867,7 @@ export async function calculateForPeriod(
           revenue: w.revenue,
           revenueNet: w.revenueNet,
           cashGross: w.cashGross,
+          cashTip: w.cashTip,
           minutes: Math.round(
             (w.last.getTime() - w.first.getTime()) / 60000,
           ),
